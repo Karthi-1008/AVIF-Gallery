@@ -1,0 +1,31 @@
+body {
+    margin: 0;
+    background: black;
+    overflow: hidden;
+}
+
+/* Fullscreen viewer */
+#viewer {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Perfect image fit */
+#viewer img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* Top bar (slightly hidden for TV look) */
+#topbar {
+    position: fixed;
+    top: 10px;
+    width: 100%;
+    text-align: center;
+    z-index: 10;
+    opacity: 0.3;
+}
