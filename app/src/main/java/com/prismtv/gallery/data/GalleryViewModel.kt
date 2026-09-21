@@ -25,6 +25,9 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
     var customUris by mutableStateOf(prefs.loadCustomUris())
         private set
 
+    var detectedDrives by mutableStateOf<List<StorageDrive>>(emptyList())
+        private set
+
     private var raw by mutableStateOf<List<Media>>(emptyList())
 
     var loading by mutableStateOf(false)
@@ -58,8 +61,21 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
         if (loading) return
         loading = true
         viewModelScope.launch {
+            val drives = withContext(Dispatchers.IO) { MediaScanner.getDetectedDrives(app) }
+            detectedDrives = drives
             val uris = customUris
-            val result = withContext(Dispatchers.IO) { MediaScanner.scan(app, uris) }
+            val result = withContext(Dispatchers.IO) { MediaScanner.scan(app, null, uris) }
+            raw = result
+            loading = false
+            hasLoadedOnce = true
+        }
+    }
+
+    fun scanSpecificDrive(drive: StorageDrive) {
+        if (loading) return
+        loading = true
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { MediaScanner.scan(app, drive.path, emptySet()) }
             raw = result
             loading = false
             hasLoadedOnce = true
@@ -111,6 +127,6 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        const val MIN_IMAGE_BYTES = 20_000L
+        const val MIN_IMAGE_BYTES = 5_000L
     }
 }

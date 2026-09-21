@@ -34,6 +34,15 @@ data class Album(
     val videoCount: Int get() = items.count { it.isVideo }
 }
 
+@Immutable
+data class StorageDrive(
+    val id: String,
+    val path: File,
+    val name: String,
+    val isUsb: Boolean,
+    val isPrimary: Boolean,
+)
+
 object Formats {
     val imageExt = setOf(
         "jpg", "jpeg", "jpe", "jfif", "png", "webp", "gif", "bmp",

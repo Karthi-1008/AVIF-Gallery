@@ -24,11 +24,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.os.Build
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import com.prismtv.gallery.data.StorageDrive
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -398,6 +405,183 @@ private fun NavRow(
                 maxLines = 1,
                 softWrap = false,
             )
+        }
+    }
+}
+
+@Composable
+fun StorageDialog(
+    drives: List<StorageDrive>,
+    hasAllFilesAccess: Boolean,
+    onDismiss: () -> Unit,
+    onSelectDrive: (StorageDrive) -> Unit,
+    onScanAll: () -> Unit,
+    onRequestAllFilesAccess: () -> Unit,
+) {
+    val p = LocalPalette.current
+    val firstRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(150)
+        try {
+            firstRequester.requestFocus()
+        } catch (e: Exception) {
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xBB000000))
+            .clickable(onClick = onDismiss),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .width(620.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Ui.Surface)
+                .border(2.dp, p.c1.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                .padding(28.dp)
+                .clickable(enabled = false) {},
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    "Storage & USB Drives",
+                    style = TextStyle(brush = p.horizontal, fontSize = 24.sp, fontWeight = FontWeight.Bold),
+                )
+                Text(
+                    "${drives.size} drive(s) found",
+                    color = Ui.TextLo,
+                    fontSize = 14.sp,
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            if (!hasAllFilesAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0x33FFB300))
+                        .border(1.dp, Color(0xFFFFB300), RoundedCornerShape(16.dp))
+                        .padding(14.dp)
+                ) {
+                    Column {
+                        Text(
+                            "⚠️ USB drives need \"All Files Access\"",
+                            color = Color(0xFFFFCC00),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Android 11 TV requires allowing All Files Access to view USB photos and videos.",
+                            color = Ui.TextHi,
+                            fontSize = 13.sp,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        PillButton(
+                            text = "Grant All Files Access in Settings",
+                            icon = Icons.Rounded.Settings,
+                            onClick = {
+                                onRequestAllFilesAccess()
+                                onDismiss()
+                            },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (drives.isEmpty()) {
+                    Text(
+                        "No external storage drives detected yet. Plug in your USB drive.",
+                        color = Ui.TextLo,
+                        fontSize = 15.sp,
+                        modifier = Modifier.padding(vertical = 12.dp),
+                    )
+                } else {
+                    drives.forEachIndexed { index, drive ->
+                        FocusCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            focusRequester = if (index == 0) firstRequester else null,
+                            onClick = {
+                                onSelectDrive(drive)
+                                onDismiss()
+                            },
+                        ) { focused ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(if (focused) Ui.SurfaceHi else Color.Black.copy(alpha = 0.3f))
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(if (drive.isUsb) p.diagonal else SolidColor(Color(0xFF3B4B75))),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        if (drive.isUsb) Icons.Rounded.Usb else Icons.Rounded.Folder,
+                                        null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(16.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        drive.name,
+                                        color = Ui.TextHi,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        drive.path.absolutePath,
+                                        color = Ui.TextLo,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Text(
+                                    "Scan",
+                                    color = if (focused) Color.White else p.c2,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+            ) {
+                PillButton("Scan All Drives", Icons.Rounded.Refresh, onClick = {
+                    onScanAll()
+                    onDismiss()
+                })
+                PillButton("Close", Icons.Rounded.Close, onClick = onDismiss)
+            }
         }
     }
 }

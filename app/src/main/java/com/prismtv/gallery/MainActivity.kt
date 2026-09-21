@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
                     onRequestPermission = { requestPermission() },
                     onRequestAllFilesAccess = { requestAllFilesAccess() },
                     onOpenAppSettings = { openAppSettings() },
-                    onSelectUsbFolder = { selectUsbFolderLauncher.launch(null) },
+                    onSelectUsbFolder = { tryOpenSystemDocumentTree() },
                     onExternalClosed = {
                         externalMedia = null
                         if (!granted) finish()
@@ -100,6 +100,14 @@ class MainActivity : ComponentActivity() {
                     onExit = { finish() },
                 )
             }
+        }
+    }
+
+    private fun tryOpenSystemDocumentTree() {
+        try {
+            selectUsbFolderLauncher.launch(null)
+        } catch (e: Exception) {
+            Toast.makeText(this, "System file picker is not available on this TV", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -163,13 +171,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updatePermission() {
-        val now = hasPermission()
-        allFilesAccessGranted = checkAllFilesAccess()
-        if (now && !granted) {
-            granted = true
+        val storagePerm = hasPermission()
+        val allFiles = checkAllFilesAccess()
+        allFilesAccessGranted = allFiles
+        val isGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            allFiles || storagePerm
+        } else {
+            storagePerm
+        }
+        granted = isGranted
+        if (isGranted) {
             vm.refresh()
-        } else if (!now) {
-            granted = false
         }
     }
 
@@ -196,19 +208,20 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
                 val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.fromParts("package", packageName, null)
+                    data = Uri.parse("package:$packageName")
                 }
                 startActivity(intent)
+                return
             } catch (e: Exception) {
-                try {
-                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                } catch (e2: Exception) {
-                    openAppSettings()
-                }
             }
-        } else {
-            openAppSettings()
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                startActivity(intent)
+                return
+            } catch (e: Exception) {
+            }
         }
+        openAppSettings()
     }
 
     private fun openAppSettings() {

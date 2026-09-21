@@ -3,12 +3,22 @@ package com.prismtv.gallery.ui
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Folder
@@ -20,6 +30,8 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Slideshow
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,9 +41,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.prismtv.gallery.data.Album
 import com.prismtv.gallery.data.GalleryViewModel
 import com.prismtv.gallery.data.Media
@@ -70,6 +86,7 @@ fun PrismRoot(
     var section by remember { mutableStateOf(Section.PHOTOS) }
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var viewer by remember { mutableStateOf<ViewerRequest?>(null) }
+    var showStorageDialog by remember { mutableStateOf(false) }
     var lastBackAt by remember { mutableStateOf(0L) }
     val memory = remember { FocusMemory() }
 
@@ -113,6 +130,7 @@ fun PrismRoot(
                 BackHandler {
                     val a = openAlbum
                     when {
+                        showStorageDialog -> showStorageDialog = false
                         a != null -> {
                             memory.restore = "album:${a.id}"
                             openAlbum = null
@@ -161,8 +179,10 @@ fun PrismRoot(
                             cellMin = cellMin,
                             vm = vm,
                             memory = memory,
+                            hasAllFilesAccess = hasAllFilesAccess,
+                            onRequestAllFilesAccess = onRequestAllFilesAccess,
                             onOpen = { i -> openViewer(vm.photos, i) },
-                            onSelectUsb = onSelectUsbFolder,
+                            onSelectUsb = { showStorageDialog = true },
                         )
                         Section.VIDEOS -> LibraryScreen(
                             title = "Videos",
@@ -177,8 +197,10 @@ fun PrismRoot(
                             cellMin = cellMin,
                             vm = vm,
                             memory = memory,
+                            hasAllFilesAccess = hasAllFilesAccess,
+                            onRequestAllFilesAccess = onRequestAllFilesAccess,
                             onOpen = { i -> openViewer(vm.videos, i) },
-                            onSelectUsb = onSelectUsbFolder,
+                            onSelectUsb = { showStorageDialog = true },
                         )
                         Section.FAVORITES -> LibraryScreen(
                             title = "Favorites",
@@ -193,6 +215,8 @@ fun PrismRoot(
                             cellMin = cellMin,
                             vm = vm,
                             memory = memory,
+                            hasAllFilesAccess = hasAllFilesAccess,
+                            onRequestAllFilesAccess = onRequestAllFilesAccess,
                             onOpen = { i -> openViewer(vm.favoriteItems, i) },
                             onSelectUsb = null,
                         )
@@ -204,9 +228,14 @@ fun PrismRoot(
                                         title = "Albums",
                                         subtitle = countText(vm.albums.size, "album"),
                                         trailing = {
-                                            PillButton("Select USB / Folder", Icons.Rounded.Usb, onSelectUsbFolder)
+                                            PillButton("Select USB / Storage", Icons.Rounded.Usb, {
+                                                showStorageDialog = true
+                                            })
                                         }
                                     )
+                                    if (!hasAllFilesAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                        UsbPermissionBanner(onRequestAllFilesAccess)
+                                    }
                                     when {
                                         (vm.loading || !vm.hasLoadedOnce) && vm.albums.isEmpty() -> LoadingView()
                                         vm.albums.isEmpty() -> CenterMessage(
@@ -214,7 +243,9 @@ fun PrismRoot(
                                             title = "No albums yet",
                                             subtitle = "Folders on internal storage and USB drives will show up here.",
                                         ) {
-                                            PillButton("Select USB Drive / Folder", Icons.Rounded.Usb, onSelectUsbFolder)
+                                            PillButton("Select USB Drive / Storage", Icons.Rounded.Usb, {
+                                                showStorageDialog = true
+                                            })
                                         }
                                         else -> AlbumGrid(
                                             albums = vm.albums,
@@ -242,6 +273,8 @@ fun PrismRoot(
                                         cellMin = cellMin,
                                         vm = vm,
                                         memory = memory,
+                                        hasAllFilesAccess = hasAllFilesAccess,
+                                        onRequestAllFilesAccess = onRequestAllFilesAccess,
                                         onOpen = { i -> openViewer(fresh?.items ?: emptyList(), i) },
                                         onSelectUsb = null,
                                     )
@@ -250,7 +283,7 @@ fun PrismRoot(
                         }
                         Section.SETTINGS -> SettingsScreen(
                             vm = vm,
-                            onSelectUsbFolder = onSelectUsbFolder,
+                            onSelectUsbFolder = { showStorageDialog = true },
                             hasAllFilesAccess = hasAllFilesAccess,
                             onRequestAllFilesAccess = onRequestAllFilesAccess,
                         )
@@ -263,7 +296,7 @@ fun PrismRoot(
                     onSelect = { k ->
                         when (k) {
                             "USB" -> {
-                                onSelectUsbFolder()
+                                showStorageDialog = true
                             }
                             "SLIDESHOW" -> {
                                 val imgs = vm.photos
@@ -293,11 +326,59 @@ fun PrismRoot(
                 )
             }
         }
+
+        if (showStorageDialog) {
+            StorageDialog(
+                drives = vm.detectedDrives,
+                hasAllFilesAccess = hasAllFilesAccess,
+                onDismiss = { showStorageDialog = false },
+                onSelectDrive = { drive ->
+                    vm.scanSpecificDrive(drive)
+                    Toast.makeText(ctx, "Scanning ${drive.name}…", Toast.LENGTH_SHORT).show()
+                },
+                onScanAll = {
+                    vm.refresh()
+                    Toast.makeText(ctx, "Scanning all storage & USB drives…", Toast.LENGTH_SHORT).show()
+                },
+                onRequestAllFilesAccess = onRequestAllFilesAccess,
+            )
+        }
     }
 }
 
 private fun countText(n: Int, noun: String): String =
     "%,d %s%s".format(n, noun, if (n == 1) "" else "s")
+
+@Composable
+private fun UsbPermissionBanner(onRequestAllFilesAccess: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0x33FFB300))
+            .border(1.dp, Color(0xFFFFB300), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Usb, null, tint = Color(0xFFFFCC00), modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "USB drives require \"All Files Access\" on Android TV.",
+                    color = Color(0xFFFFCC00),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+            PillButton("Allow in Settings", Icons.Rounded.Settings, onRequestAllFilesAccess)
+        }
+    }
+}
 
 @Composable
 private fun LibraryScreen(
@@ -313,16 +394,21 @@ private fun LibraryScreen(
     cellMin: androidx.compose.ui.unit.Dp,
     vm: GalleryViewModel,
     memory: FocusMemory,
+    hasAllFilesAccess: Boolean,
+    onRequestAllFilesAccess: () -> Unit,
     onOpen: (Int) -> Unit,
     onSelectUsb: (() -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize()) {
         ScreenHeader(title, subtitle)
+        if (!hasAllFilesAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            UsbPermissionBanner(onRequestAllFilesAccess)
+        }
         when {
             list.isEmpty() && loading -> LoadingView()
             list.isEmpty() -> CenterMessage(emptyIcon, emptyTitle, emptyText) {
                 if (onSelectUsb != null) {
-                    PillButton("Select USB / Folder", Icons.Rounded.Usb, onSelectUsb)
+                    PillButton("Select USB / Storage", Icons.Rounded.Usb, onSelectUsb)
                 }
             }
             else -> MediaGrid(
@@ -356,15 +442,31 @@ private fun PermissionScreen(
     }
     CenterMessage(
         icon = Icons.Rounded.Lock,
-        title = "Allow access to your photos",
-        subtitle = "Prism Gallery needs storage permission to find photos and videos on this TV and on USB drives.",
+        title = "Allow access to photos & USB",
+        subtitle = "Prism Gallery needs permission to find photos and videos on this TV and on USB drives.",
     ) {
-        PillButton("Grant storage access", Icons.Rounded.PhotoLibrary, onRequestPermission, focusRequester = first)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasAllFilesAccess) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            PillButton(
+                text = "Allow All Files Access (for USB)",
+                icon = Icons.Rounded.Usb,
+                onClick = onRequestAllFilesAccess,
+                focusRequester = first,
+            )
             Spacer(Modifier.padding(6.dp))
-            PillButton("Grant full USB access", Icons.Rounded.Usb, onRequestAllFilesAccess)
+            PillButton(
+                text = "Standard Storage Access",
+                icon = Icons.Rounded.PhotoLibrary,
+                onClick = onRequestPermission,
+            )
+        } else {
+            PillButton(
+                text = "Grant Storage Access",
+                icon = Icons.Rounded.PhotoLibrary,
+                onClick = onRequestPermission,
+                focusRequester = first,
+            )
         }
         Spacer(Modifier.padding(6.dp))
-        PillButton("Open app settings", Icons.Rounded.Settings, onOpenAppSettings)
+        PillButton("Open TV App Settings", Icons.Rounded.Settings, onOpenAppSettings)
     }
 }

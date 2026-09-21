@@ -14,7 +14,7 @@ data class Settings(
     val kenBurns: Boolean = true,
     val shuffle: Boolean = false,
     val loop: Boolean = true,
-    val hideSmall: Boolean = true,
+    val hideSmall: Boolean = false,
     val showNames: Boolean = false,
 )
 

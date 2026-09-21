@@ -10,10 +10,9 @@ android {
     defaultConfig {
         applicationId = "com.prismtv.gallery"
         minSdk = 21
-        // targetSdk 29 keeps "legacy storage" behaviour on Android 10/11/12 TVs so the
-        // app can read every folder + USB drive (needed for .avif files that older
-        // MediaStore versions do not index) and delete files without extra prompts.
-        targetSdk = 29
+        // targetSdk 34 enables MANAGE_EXTERNAL_STORAGE ("All Files Access") on Android 11+ TVs,
+        // allowing full unconstrained access to all folders, files, and connected USB drives.
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
 
