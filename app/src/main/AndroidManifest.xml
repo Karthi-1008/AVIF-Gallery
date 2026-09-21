@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- Runs on Android TV boxes/TVs AND on phones/tablets (universal). -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.faketouch"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.screen.landscape"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
+    <application
+        android:name=".GalleryApp"
+        android:allowBackup="true"
+        android:banner="@drawable/banner"
+        android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher"
+        android:isGame="false"
+        android:label="@string/app_name"
+        android:largeHeap="true"
+        android:requestLegacyExternalStorage="true"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Prism"
+        tools:ignore="DataExtractionRules,GoogleAppIndexingWarning">
+
+        <activity
+            android:name=".MainActivity"
+            android:banner="@drawable/banner"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|layoutDirection"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustNothing">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+
+            <!-- "Open with Prism Gallery" from file managers -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

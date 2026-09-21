@@ -1,0 +1,403 @@
+package com.prismtv.gallery.ui
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.delay
+
+val RailCollapsed = 84.dp
+
+/** Remembers which grid cell had focus so we can put focus back after the viewer closes. */
+@Stable
+class FocusMemory {
+    var last: String? = null
+    var restore by mutableStateOf<String?>(null)
+}
+
+/** Focus requester for a grid cell; also restores focus when [FocusMemory.restore] matches. */
+@Composable
+fun rememberCellFocus(key: String, memory: FocusMemory, first: FocusRequester?): FocusRequester {
+    val own = remember { FocusRequester() }
+    val fr = first ?: own
+    val restore = memory.restore
+    LaunchedEffect(restore) {
+        if (restore != null && restore == key) {
+            delay(80)
+            try {
+                fr.requestFocus()
+            } catch (e: Exception) {
+            }
+            memory.restore = null
+        }
+    }
+    return fr
+}
+
+/**
+ * The basic D-pad friendly building block: grows, glows and gets a gradient outline when focused.
+ */
+@Composable
+fun FocusCard(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(16.dp),
+    focusRequester: FocusRequester? = null,
+    focusedScale: Float = 1.07f,
+    borderWidth: Dp = 3.dp,
+    onFocusChange: (Boolean) -> Unit = {},
+    onClick: () -> Unit,
+    content: @Composable BoxScope.(focused: Boolean) -> Unit,
+) {
+    val p = LocalPalette.current
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) focusedScale else 1f, tween(160), label = "cardScale")
+    val glow by animateFloatAsState(if (focused) 1f else 0f, tween(160), label = "cardGlow")
+    val interaction = remember { MutableInteractionSource() }
+
+    Box(
+        modifier = modifier
+            .zIndex(if (focused) 1f else 0f)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .shadow(
+                elevation = (20f * glow).dp,
+                shape = shape,
+                clip = false,
+                ambientColor = p.c1,
+                spotColor = p.c2,
+            )
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged {
+                focused = it.isFocused
+                onFocusChange(it.isFocused)
+            }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .clip(shape)
+    ) {
+        content(focused)
+        if (focused) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .border(borderWidth, p.horizontal, shape)
+            )
+        }
+    }
+}
+
+@Composable
+fun PillButton(
+    text: String,
+    icon: ImageVector?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    danger: Boolean = false,
+) {
+    val p = LocalPalette.current
+    val shape = RoundedCornerShape(50)
+    FocusCard(
+        modifier = modifier,
+        shape = shape,
+        focusRequester = focusRequester,
+        focusedScale = 1.06f,
+        borderWidth = 0.dp,
+        onClick = onClick,
+    ) { focused ->
+        val bg: Brush = when {
+            focused && danger -> Brush.horizontalGradient(listOf(Color(0xFFFF3D71), Color(0xFFFF7A59)))
+            focused -> p.horizontal
+            else -> SolidColor(Ui.SurfaceHi)
+        }
+        val fg = if (focused) Ui.Bg else Ui.TextHi
+        Row(
+            Modifier
+                .background(bg)
+                .padding(horizontal = 26.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            if (icon != null) {
+                Icon(icon, null, tint = fg, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
+            }
+            Text(text, color = fg, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+fun ScreenHeader(
+    title: String,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable RowScope.() -> Unit)? = null,
+) {
+    val p = LocalPalette.current
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Text(
+            text = title,
+            style = TextStyle(brush = p.horizontal, fontSize = 34.sp, fontWeight = FontWeight.Black),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (subtitle != null) {
+            Spacer(Modifier.width(16.dp))
+            Text(
+                subtitle,
+                color = Ui.TextLo,
+                fontSize = 16.sp,
+                maxLines = 1,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        trailing?.invoke(this)
+    }
+}
+
+@Composable
+fun LoadingView(text: String = "Loading your library…") {
+    val p = LocalPalette.current
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = p.c2, strokeWidth = 5.dp, modifier = Modifier.size(56.dp))
+            Spacer(Modifier.height(18.dp))
+            Text(text, color = Ui.TextLo, fontSize = 18.sp)
+        }
+    }
+}
+
+@Composable
+fun CenterMessage(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    actions: @Composable ColumnScope.() -> Unit = {},
+) {
+    val p = LocalPalette.current
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(32.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(p.diagonal),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, null, tint = Ui.Bg, modifier = Modifier.size(48.dp))
+            }
+            Spacer(Modifier.height(22.dp))
+            Text(
+                title,
+                color = Ui.TextHi,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                subtitle,
+                color = Ui.TextLo,
+                fontSize = 17.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(520.dp),
+            )
+            Spacer(Modifier.height(26.dp))
+            actions()
+        }
+    }
+}
+
+data class NavItem(val key: String, val label: String, val icon: ImageVector)
+
+/**
+ * Left navigation rail: icons only until a rail item gets focus, then it slides open
+ * over the content and shows labels.
+ */
+@Composable
+fun NavRail(
+    items: List<NavItem>,
+    selectedKey: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val p = LocalPalette.current
+    var focusedKey by remember { mutableStateOf<String?>(null) }
+    val expanded = focusedKey != null
+    val width by animateDpAsState(if (expanded) 252.dp else RailCollapsed, tween(200), label = "railWidth")
+    val bgAlpha by animateFloatAsState(if (expanded) 0.97f else 0f, tween(200), label = "railAlpha")
+
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(width)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Ui.Bg.copy(alpha = bgAlpha), Ui.Bg.copy(alpha = bgAlpha * 0.90f))
+                )
+            )
+            .padding(horizontal = 14.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 6.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(p.diagonal),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.AutoAwesome, null, tint = Ui.Bg, modifier = Modifier.size(24.dp))
+            }
+            if (expanded) {
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "Prism",
+                    style = TextStyle(brush = p.horizontal, fontSize = 24.sp, fontWeight = FontWeight.Black),
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+        items.forEach { item ->
+            NavRow(
+                item = item,
+                selected = item.key == selectedKey,
+                expanded = expanded,
+                onFocus = { f ->
+                    if (f) focusedKey = item.key
+                    else if (focusedKey == item.key) focusedKey = null
+                },
+                onClick = { onSelect(item.key) },
+            )
+            Spacer(Modifier.height(5.dp))
+        }
+    }
+}
+
+@Composable
+private fun NavRow(
+    item: NavItem,
+    selected: Boolean,
+    expanded: Boolean,
+    onFocus: (Boolean) -> Unit,
+    onClick: () -> Unit,
+) {
+    val p = LocalPalette.current
+    var focused by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(16.dp)
+    val bg: Brush = when {
+        focused -> p.horizontal
+        selected -> SolidColor(Color.White.copy(alpha = 0.12f))
+        else -> SolidColor(Color.Transparent)
+    }
+    val fg = when {
+        focused -> Ui.Bg
+        selected -> Ui.TextHi
+        else -> Ui.TextLo
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(50.dp)
+            .onFocusChanged {
+                focused = it.isFocused
+                onFocus(it.isFocused)
+            }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .clip(shape)
+            .background(bg)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            item.icon,
+            null,
+            tint = if (selected && !focused) p.c3 else fg,
+            modifier = Modifier.size(26.dp),
+        )
+        if (expanded) {
+            Spacer(Modifier.width(14.dp))
+            Text(
+                item.label,
+                color = fg,
+                fontSize = 17.sp,
+                fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+    }
+}
