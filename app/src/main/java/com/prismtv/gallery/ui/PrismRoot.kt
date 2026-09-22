@@ -5,7 +5,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,18 +19,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DateRange
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Slideshow
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.VideoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,8 +57,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prismtv.gallery.data.Album
+import com.prismtv.gallery.data.DateGrouping
 import com.prismtv.gallery.data.GalleryViewModel
 import com.prismtv.gallery.data.Media
+import com.prismtv.gallery.data.MediaFilter
 import com.prismtv.gallery.data.ViewerRequest
 import kotlinx.coroutines.delay
 
@@ -87,6 +97,7 @@ fun PrismRoot(
     var openAlbum by remember { mutableStateOf<Album?>(null) }
     var viewer by remember { mutableStateOf<ViewerRequest?>(null) }
     var showStorageDialog by remember { mutableStateOf(false) }
+    var showSearchDialog by remember { mutableStateOf(false) }
     var lastBackAt by remember { mutableStateOf(0L) }
     val memory = remember { FocusMemory() }
 
@@ -94,6 +105,13 @@ fun PrismRoot(
     val videosState = rememberLazyGridState()
     val favState = rememberLazyGridState()
     val albumsState = rememberLazyGridState()
+
+    val dateGrouping = when (settings.dateGrouping) {
+        0 -> DateGrouping.DAY
+        1 -> DateGrouping.MONTH
+        2 -> DateGrouping.YEAR
+        else -> DateGrouping.NONE
+    }
 
     Box(Modifier.fillMaxSize()) {
         AppBackground()
@@ -131,6 +149,8 @@ fun PrismRoot(
                     val a = openAlbum
                     when {
                         showStorageDialog -> showStorageDialog = false
+                        showSearchDialog -> showSearchDialog = false
+                        vm.selectionMode -> vm.clearSelection()
                         a != null -> {
                             memory.restore = "album:${a.id}"
                             openAlbum = null
@@ -153,7 +173,6 @@ fun PrismRoot(
                     2 -> 210.dp
                     else -> 160.dp
                 }
-                val grouped = settings.sort == 0 || settings.sort == 1
 
                 fun openViewer(list: List<Media>, index: Int) {
                     viewer = ViewerRequest(list, index)
@@ -170,12 +189,12 @@ fun PrismRoot(
                             subtitle = countText(vm.photos.size, "photo") +
                                 if (vm.videos.isNotEmpty()) "  •  " + countText(vm.videos.size, "video") else "",
                             list = vm.photos,
-                            loading = vm.loading || !vm.hasLoadedOnce,
+                            loading = vm.loading && !vm.hasLoadedOnce,
                             emptyIcon = Icons.Rounded.PhotoLibrary,
                             emptyTitle = "No photos found",
                             emptyText = "Copy pictures to this TV, plug in a USB drive, or choose Select USB.",
                             state = photosState,
-                            grouped = grouped,
+                            grouping = dateGrouping,
                             cellMin = cellMin,
                             vm = vm,
                             memory = memory,
@@ -183,17 +202,18 @@ fun PrismRoot(
                             onRequestAllFilesAccess = onRequestAllFilesAccess,
                             onOpen = { i -> openViewer(vm.photos, i) },
                             onSelectUsb = { showStorageDialog = true },
+                            onOpenSearch = { showSearchDialog = true },
                         )
                         Section.VIDEOS -> LibraryScreen(
                             title = "Videos",
                             subtitle = countText(vm.videos.size, "video"),
                             list = vm.videos,
-                            loading = vm.loading || !vm.hasLoadedOnce,
+                            loading = vm.loading && !vm.hasLoadedOnce,
                             emptyIcon = Icons.Rounded.Movie,
                             emptyTitle = "No videos found",
                             emptyText = "MP4, MKV, WebM, MOV, TS and more are supported.",
                             state = videosState,
-                            grouped = grouped,
+                            grouping = dateGrouping,
                             cellMin = cellMin,
                             vm = vm,
                             memory = memory,
@@ -201,6 +221,7 @@ fun PrismRoot(
                             onRequestAllFilesAccess = onRequestAllFilesAccess,
                             onOpen = { i -> openViewer(vm.videos, i) },
                             onSelectUsb = { showStorageDialog = true },
+                            onOpenSearch = { showSearchDialog = true },
                         )
                         Section.FAVORITES -> LibraryScreen(
                             title = "Favorites",
@@ -209,9 +230,9 @@ fun PrismRoot(
                             loading = false,
                             emptyIcon = Icons.Rounded.Favorite,
                             emptyTitle = "No favorites yet",
-                            emptyText = "Open a photo, press OK and tap the heart to add it here.",
+                            emptyText = "Open a photo or video, press OK and tap the heart icon to add it here.",
                             state = favState,
-                            grouped = grouped,
+                            grouping = dateGrouping,
                             cellMin = cellMin,
                             vm = vm,
                             memory = memory,
@@ -219,6 +240,7 @@ fun PrismRoot(
                             onRequestAllFilesAccess = onRequestAllFilesAccess,
                             onOpen = { i -> openViewer(vm.favoriteItems, i) },
                             onSelectUsb = null,
+                            onOpenSearch = { showSearchDialog = true },
                         )
                         Section.ALBUMS -> {
                             val a = openAlbum
@@ -237,7 +259,7 @@ fun PrismRoot(
                                         UsbPermissionBanner(onRequestAllFilesAccess)
                                     }
                                     when {
-                                        (vm.loading || !vm.hasLoadedOnce) && vm.albums.isEmpty() -> LoadingView()
+                                        vm.loading && !vm.hasLoadedOnce && vm.albums.isEmpty() -> LoadingView()
                                         vm.albums.isEmpty() -> CenterMessage(
                                             icon = Icons.Rounded.Folder,
                                             title = "No albums yet",
@@ -256,7 +278,6 @@ fun PrismRoot(
                                     }
                                 }
                             } else {
-                                // keep the latest content of the album (after deletes)
                                 val fresh = vm.albums.firstOrNull { it.id == a.id }
                                 key(a.id) {
                                     val detailState = rememberLazyGridState()
@@ -269,7 +290,7 @@ fun PrismRoot(
                                         emptyTitle = "This album is empty",
                                         emptyText = "Press Back to return to your albums.",
                                         state = detailState,
-                                        grouped = grouped,
+                                        grouping = dateGrouping,
                                         cellMin = cellMin,
                                         vm = vm,
                                         memory = memory,
@@ -277,6 +298,7 @@ fun PrismRoot(
                                         onRequestAllFilesAccess = onRequestAllFilesAccess,
                                         onOpen = { i -> openViewer(fresh?.items ?: emptyList(), i) },
                                         onSelectUsb = null,
+                                        onOpenSearch = { showSearchDialog = true },
                                     )
                                 }
                             }
@@ -343,6 +365,17 @@ fun PrismRoot(
                 onRequestAllFilesAccess = onRequestAllFilesAccess,
             )
         }
+
+        if (showSearchDialog) {
+            SearchDialog(
+                currentQuery = vm.searchQuery,
+                onDismiss = { showSearchDialog = false },
+                onApply = { query ->
+                    vm.searchQuery = query
+                    showSearchDialog = false
+                }
+            )
+        }
     }
 }
 
@@ -390,7 +423,7 @@ private fun LibraryScreen(
     emptyTitle: String,
     emptyText: String,
     state: androidx.compose.foundation.lazy.grid.LazyGridState,
-    grouped: Boolean,
+    grouping: DateGrouping,
     cellMin: androidx.compose.ui.unit.Dp,
     vm: GalleryViewModel,
     memory: FocusMemory,
@@ -398,12 +431,111 @@ private fun LibraryScreen(
     onRequestAllFilesAccess: () -> Unit,
     onOpen: (Int) -> Unit,
     onSelectUsb: (() -> Unit)? = null,
+    onOpenSearch: (() -> Unit)? = null,
 ) {
+    val p = LocalPalette.current
+    val ctx = LocalContext.current
+
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(title, subtitle)
+        ScreenHeader(
+            title = title,
+            subtitle = subtitle,
+            trailing = {
+                // Date grouping cycler
+                PillButton(
+                    text = grouping.label,
+                    icon = Icons.Rounded.DateRange,
+                    onClick = {
+                        val next = (vm.settings.dateGrouping + 1) % 4
+                        vm.update { it.copy(dateGrouping = next) }
+                    }
+                )
+                Spacer(Modifier.width(8.dp))
+                // Search button
+                if (onOpenSearch != null) {
+                    PillButton(
+                        text = if (vm.searchQuery.isNotEmpty()) "\"${vm.searchQuery}\"" else "Search",
+                        icon = Icons.Rounded.Search,
+                        onClick = onOpenSearch,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                // Multi-selection button
+                PillButton(
+                    text = if (vm.selectionMode) "Cancel Select" else "Select",
+                    icon = if (vm.selectionMode) Icons.Rounded.Close else Icons.Rounded.CheckCircle,
+                    onClick = {
+                        if (vm.selectionMode) vm.clearSelection() else vm.selectionMode = true
+                    }
+                )
+            }
+        )
+
+        // Filter chips bar
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MediaFilter.values().forEach { filter ->
+                FilterChip(
+                    text = filter.label,
+                    selected = vm.activeFilter == filter,
+                    onClick = { vm.activeFilter = filter }
+                )
+            }
+            if (vm.searchQuery.isNotEmpty()) {
+                FilterChip(
+                    text = "Clear Search",
+                    selected = true,
+                    icon = Icons.Rounded.Close,
+                    onClick = { vm.searchQuery = "" }
+                )
+            }
+        }
+
+        // Selection Action Bar
+        if (vm.selectionMode) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Ui.SurfaceHi)
+                    .border(1.dp, p.c1.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "${vm.selectedIds.size} selected",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PillButton("Select All", Icons.Rounded.SelectAll, { vm.selectAll(list) })
+                        PillButton("Favorite", Icons.Rounded.Favorite, { vm.batchFavorite() })
+                        PillButton("Delete", Icons.Rounded.Delete, {
+                            vm.batchDelete { count ->
+                                Toast.makeText(ctx, "Deleted $count item(s)", Toast.LENGTH_SHORT).show()
+                            }
+                        }, danger = true)
+                        PillButton("Done", Icons.Rounded.Close, { vm.clearSelection() })
+                    }
+                }
+            }
+        }
+
         if (!hasAllFilesAccess && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             UsbPermissionBanner(onRequestAllFilesAccess)
         }
+
         when {
             list.isEmpty() && loading -> LoadingView()
             list.isEmpty() -> CenterMessage(emptyIcon, emptyTitle, emptyText) {
@@ -414,15 +546,55 @@ private fun LibraryScreen(
             else -> MediaGrid(
                 mediaList = list,
                 state = state,
-                grouped = grouped,
+                grouping = grouping,
+                useDateTaken = vm.settings.useDateTaken,
                 cellMin = cellMin,
                 favorites = vm.favorites,
                 showNames = vm.settings.showNames,
                 memory = memory,
+                selectionMode = vm.selectionMode,
+                selectedIds = vm.selectedIds,
+                onToggleSelect = { vm.toggleSelection(it) },
                 onOpen = onOpen,
             )
         }
     }
+}
+
+@Composable
+private fun SearchDialog(
+    currentQuery: String,
+    onDismiss: () -> Unit,
+    onApply: (String) -> Unit,
+) {
+    var query by remember { mutableStateOf(currentQuery) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Search Photos & Videos", color = Ui.TextHi, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = { Text("Search by name, folder, extension…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(query) }) {
+                Text("Search", color = Color(0xFF00F2FE), fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Ui.TextLo)
+            }
+        },
+        containerColor = Ui.Surface,
+    )
 }
 
 @Composable

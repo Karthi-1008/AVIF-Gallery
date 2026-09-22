@@ -49,10 +49,20 @@ import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.RotateRight
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import coil.size.Precision
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -114,6 +124,8 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import androidx.media3.common.MediaItem as ExoMediaItem
 
+private const val VIDEO_FRAME_KEY = "coil#video_frame_micros"
+
 /** Per-photo view transform (zoom / rotation / pan). */
 data class Xf(val zoom: Float = 1f, val rot: Int = 0, val panX: Float = 0f, val panY: Float = 0f)
 
@@ -147,15 +159,23 @@ private fun fadeTransition(ms: Int): ContentTransform =
     fadeIn(tween(ms)) togetherWith fadeOut(tween(ms))
 
 @Composable
-private fun rememberPlayer(m: Media): ExoPlayer {
+private fun rememberPlayer(m: Media, loop: Boolean, speed: Float): ExoPlayer {
     val ctx = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val p = remember(m.id) {
         ExoPlayer.Builder(ctx).build().apply {
             setMediaItem(ExoMediaItem.fromUri(m.uri))
+            repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+            setPlaybackSpeed(speed)
             prepare()
             playWhenReady = true
         }
+    }
+    LaunchedEffect(loop) {
+        p.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    }
+    LaunchedEffect(speed) {
+        p.setPlaybackSpeed(speed)
     }
     DisposableEffect(p) {
         onDispose { p.release() }
@@ -208,7 +228,7 @@ fun Viewer(
         return
     }
 
-    val player: ExoPlayer? = if (cur.isVideo) rememberPlayer(cur) else null
+    val player: ExoPlayer? = if (cur.isVideo) rememberPlayer(cur, settings.loopVideo, settings.playbackSpeed) else null
     var vPlaying by remember(cur.id) { mutableStateOf(false) }
     var vPos by remember(cur.id) { mutableLongStateOf(0L) }
     var vDur by remember(cur.id) { mutableLongStateOf(0L) }
@@ -577,18 +597,49 @@ fun Viewer(
                 vm.toggleFavorite(cur)
                 say(if (fav) "Removed from favorites" else "Added to favorites")
             }
+            if (cur.isVideo) {
+                val speeds = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+                ctls += Ctl(Icons.Rounded.Speed, "Speed ${settings.playbackSpeed}x") {
+                    val nextIdx = (speeds.indexOf(settings.playbackSpeed).takeIf { it >= 0 } ?: 1) + 1
+                    val newSpeed = speeds[nextIdx % speeds.size]
+                    vm.update { it.copy(playbackSpeed = newSpeed) }
+                    say("Speed ${newSpeed}x")
+                }
+                ctls += Ctl(Icons.Rounded.Repeat, if (settings.loopVideo) "Loop: On" else "Loop: Off", active = settings.loopVideo) {
+                    val newLoop = !settings.loopVideo
+                    vm.update { it.copy(loopVideo = newLoop) }
+                    say(if (newLoop) "Loop On" else "Loop Off")
+                }
+            }
             ctls += Ctl(Icons.Rounded.Info, "Details") { showInfo = true }
             if (request.allowDelete) {
                 ctls += Ctl(Icons.Rounded.Delete, "Delete") { confirmDelete = true }
             }
 
-            ControlPanel(
-                ctls = ctls,
-                focusRequester = ctlFocus,
-                progress = if (cur.isVideo) (if (vDur > 0) vPos.toFloat() / vDur else 0f) else null,
-                posText = MediaInfo.formatDuration(vPos),
-                durText = MediaInfo.formatDuration(vDur),
-            )
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (list.size > 1) {
+                    ThumbnailFilmstrip(
+                        items = list,
+                        selectedIndex = index,
+                        onSelectIndex = { newIdx ->
+                            index = newIdx
+                            if (list[newIdx].isVideo) playing = false
+                        }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                ControlPanel(
+                    ctls = ctls,
+                    focusRequester = ctlFocus,
+                    progress = if (cur.isVideo) (if (vDur > 0) vPos.toFloat() / vDur else 0f) else null,
+                    posText = MediaInfo.formatDuration(vPos),
+                    durText = MediaInfo.formatDuration(vDur),
+                )
+            }
         }
 
         // ---- transient toast
@@ -932,6 +983,74 @@ private fun ConfirmDelete(name: String, onCancel: () -> Unit, onConfirm: () -> U
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 PillButton("Cancel", null, onCancel, focusRequester = cancelFocus)
                 PillButton("Delete", Icons.Rounded.Delete, onConfirm, danger = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThumbnailFilmstrip(
+    items: List<Media>,
+    selectedIndex: Int,
+    onSelectIndex: (Int) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    val ctx = LocalContext.current
+    val p = LocalPalette.current
+
+    LaunchedEffect(selectedIndex) {
+        listState.animateScrollToItem((selectedIndex - 2).coerceAtLeast(0))
+    }
+
+    LazyRow(
+        state = listState,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(horizontal = 48.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(68.dp),
+    ) {
+        itemsIndexed(items, key = { _, m -> "strip_${m.id}" }) { idx, m ->
+            val isSelected = idx == selectedIndex
+            val req = remember(m.id, m.dateMillis) {
+                ImageRequest.Builder(ctx)
+                    .data(m.model)
+                    .size(160, 160)
+                    .precision(Precision.INEXACT)
+                    .diskCacheKey("thumb_${m.id}_${m.dateMillis}")
+                    .apply { if (m.isVideo) setParameter(VIDEO_FRAME_KEY, 1_500_000L) }
+                    .crossfade(true)
+                    .build()
+            }
+
+            FocusCard(
+                modifier = Modifier
+                    .size(58.dp)
+                    .aspectRatio(1f),
+                shape = RoundedCornerShape(10.dp),
+                focusedScale = 1.15f,
+                borderWidth = 0.dp,
+                onClick = { onSelectIndex(idx) },
+            ) { _ ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Ui.SurfaceHi)
+                ) {
+                    AsyncImage(
+                        model = req,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    if (isSelected) {
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .border(3.dp, p.horizontal, RoundedCornerShape(10.dp))
+                        )
+                    }
+                }
             }
         }
     }

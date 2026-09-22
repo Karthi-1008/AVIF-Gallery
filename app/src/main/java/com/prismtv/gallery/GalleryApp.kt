@@ -6,11 +6,12 @@ import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.decode.VideoFrameDecoder
+import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import android.os.Build
 import com.prismtv.gallery.avif.AvifCoilDecoder
 
-/** Application: configures the global Coil image loader (AVIF, GIF, video thumbnails). */
+/** Application: configures the global Coil image loader with persistent disk cache & AVIF/GIF/Video decoding. */
 class GalleryApp : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
@@ -20,7 +21,16 @@ class GalleryApp : Application(), ImageLoaderFactory {
                 add(VideoFrameDecoder.Factory())        // thumbnails for videos
             }
             .memoryCache {
-                MemoryCache.Builder(this).maxSizePercent(0.30).build()
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .strongReferencesEnabled(true)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("coil_disk_cache"))
+                    .maxSizeBytes(512L * 1024 * 1024)   // 512 MB disk cache for instant USB thumbnail loads
+                    .build()
             }
             .crossfade(true)
             .respectCacheHeaders(false)

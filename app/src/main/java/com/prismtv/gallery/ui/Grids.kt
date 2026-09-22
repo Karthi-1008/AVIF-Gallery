@@ -1,6 +1,7 @@
 package com.prismtv.gallery.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BrokenImage
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Usb
@@ -48,10 +50,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.size.Precision
 import com.prismtv.gallery.data.Album
+import com.prismtv.gallery.data.DateGrouping
 import com.prismtv.gallery.data.Media
+import com.prismtv.gallery.data.MediaInfo
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -59,7 +65,7 @@ sealed interface GridEntry {
     val key: String
 }
 
-data class HeaderEntry(val title: String, val count: Int, val uid: Int) : GridEntry {
+data class HeaderEntry(val title: String, val subtitle: String?, val count: Int, val uid: Int) : GridEntry {
     override val key: String get() = "h:$uid:$title"
 }
 
@@ -67,19 +73,64 @@ data class CellEntry(val media: Media, val index: Int) : GridEntry {
     override val key: String get() = media.id
 }
 
-private fun buildEntries(list: List<Media>, grouped: Boolean): List<GridEntry> {
-    if (!grouped) return list.mapIndexed { i, m -> CellEntry(m, i) }
-    val fmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
-    val titles = list.map { fmt.format(Date(it.dateMillis)) }
+private fun isSameDay(c1: Calendar, c2: Calendar): Boolean {
+    return c1.get(Calendar.ERA) == c2.get(Calendar.ERA) &&
+            c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) &&
+            c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
+}
+
+private fun formatDayTitle(timeMillis: Long, now: Calendar, itemCal: Calendar): Pair<String, String?> {
+    itemCal.timeInMillis = timeMillis
+
+    if (isSameDay(now, itemCal)) {
+        val fmt = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault())
+        return "Today" to fmt.format(Date(timeMillis))
+    }
+
+    val yesterday = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -1) }
+    if (isSameDay(yesterday, itemCal)) {
+        val fmt = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault())
+        return "Yesterday" to fmt.format(Date(timeMillis))
+    }
+
+    val dayName = SimpleDateFormat("EEEE", Locale.getDefault()).format(Date(timeMillis))
+    val dateStr = SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(timeMillis))
+    return dayName to dateStr
+}
+
+private fun buildEntries(
+    list: List<Media>,
+    grouping: DateGrouping,
+    useDateTaken: Boolean,
+): List<GridEntry> {
+    if (grouping == DateGrouping.NONE) return list.mapIndexed { i, m -> CellEntry(m, i) }
+
+    val monthFmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
+    val yearFmt = SimpleDateFormat("yyyy", Locale.getDefault())
+    val now = Calendar.getInstance()
+    val itemCal = Calendar.getInstance()
+
+    val titlePairs = list.map { m ->
+        val time = if (useDateTaken) m.dateTakenMillis else m.dateMillis
+        when (grouping) {
+            DateGrouping.DAY -> formatDayTitle(time, now, itemCal)
+            DateGrouping.MONTH -> monthFmt.format(Date(time)) to null
+            DateGrouping.YEAR -> yearFmt.format(Date(time)) to null
+            DateGrouping.NONE -> "" to null
+        }
+    }
+
     val counts = HashMap<String, Int>()
-    titles.forEach { counts[it] = (counts[it] ?: 0) + 1 }
+    titlePairs.forEach { counts[it.first] = (counts[it.first] ?: 0) + 1 }
+
     val out = ArrayList<GridEntry>(list.size + 32)
     var last: String? = null
     var uid = 0
+
     list.forEachIndexed { i, m ->
-        val t = titles[i]
+        val (t, sub) = titlePairs[i]
         if (t != last) {
-            out += HeaderEntry(t, counts[t] ?: 0, uid++)
+            out += HeaderEntry(t, sub, counts[t] ?: 0, uid++)
             last = t
         }
         out += CellEntry(m, i)
@@ -91,15 +142,21 @@ private fun buildEntries(list: List<Media>, grouped: Boolean): List<GridEntry> {
 fun MediaGrid(
     mediaList: List<Media>,
     state: LazyGridState,
-    grouped: Boolean,
+    grouping: DateGrouping,
+    useDateTaken: Boolean,
     cellMin: Dp,
     favorites: Set<String>,
     showNames: Boolean,
     memory: FocusMemory,
+    selectionMode: Boolean = false,
+    selectedIds: Set<String> = emptySet(),
+    onToggleSelect: (Media) -> Unit = {},
     onOpen: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val entries = remember(mediaList, grouped) { buildEntries(mediaList, grouped) }
+    val entries = remember(mediaList, grouping, useDateTaken) {
+        buildEntries(mediaList, grouping, useDateTaken)
+    }
     val first = remember { FocusRequester() }
 
     LaunchedEffect(entries.isNotEmpty()) {
@@ -140,13 +197,16 @@ fun MediaGrid(
             span = { e -> if (e is HeaderEntry) GridItemSpan(maxLineSpan) else GridItemSpan(1) },
         ) { e ->
             when (e) {
-                is HeaderEntry -> MonthHeader(e)
+                is HeaderEntry -> DateSectionHeader(e)
                 is CellEntry -> MediaCell(
                     m = e.media,
                     index = e.index,
                     fav = e.media.id in favorites,
                     showName = showNames,
                     memory = memory,
+                    selectionMode = selectionMode,
+                    isSelected = e.media.id in selectedIds,
+                    onToggleSelect = { onToggleSelect(e.media) },
                     first = if (e.index == 0) first else null,
                     onOpen = onOpen,
                 )
@@ -156,24 +216,39 @@ fun MediaGrid(
 }
 
 @Composable
-private fun MonthHeader(h: HeaderEntry) {
+private fun DateSectionHeader(h: HeaderEntry) {
     val p = LocalPalette.current
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, start = 4.dp),
+            .padding(top = 10.dp, bottom = 2.dp, start = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
-                .size(width = 5.dp, height = 22.dp)
+                .size(width = 5.dp, height = 24.dp)
                 .clip(RoundedCornerShape(3.dp))
                 .background(p.vertical)
         )
         Spacer(Modifier.width(10.dp))
         Text(h.title, color = Ui.TextHi, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        if (h.subtitle != null) {
+            Spacer(Modifier.width(10.dp))
+            Text("•", color = Ui.TextLo, fontSize = 14.sp)
+            Spacer(Modifier.width(10.dp))
+            Text(h.subtitle, color = Ui.TextLo, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        }
         Spacer(Modifier.width(12.dp))
-        Text("${h.count}", color = Ui.TextLo, fontSize = 15.sp)
+        Text(
+            "${h.count}",
+            color = p.c2,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(p.c2.copy(alpha = 0.15f))
+                .padding(horizontal = 7.dp, vertical = 2.dp)
+        )
     }
 }
 
@@ -186,15 +261,24 @@ private fun MediaCell(
     fav: Boolean,
     showName: Boolean,
     memory: FocusMemory,
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: () -> Unit = {},
     first: FocusRequester?,
     onOpen: (Int) -> Unit,
 ) {
     val fr = rememberCellFocus(m.id, memory, first)
     val ctx = LocalContext.current
     var failed by remember(m.id) { mutableStateOf(false) }
-    val request = remember(m.id) {
+
+    // Downsample directly at decode time with persistent disk cache key
+    val request = remember(m.id, m.dateMillis) {
         ImageRequest.Builder(ctx)
             .data(m.model)
+            .size(384, 384)
+            .precision(Precision.INEXACT)
+            .diskCacheKey("thumb_${m.id}_${m.dateMillis}")
+            .memoryCacheKey("thumb_${m.id}")
             .apply { if (m.isVideo) setParameter(VIDEO_FRAME_KEY, 1_500_000L) }
             .crossfade(true)
             .build()
@@ -207,7 +291,13 @@ private fun MediaCell(
         shape = RoundedCornerShape(14.dp),
         focusRequester = fr,
         onFocusChange = { if (it) memory.last = m.id },
-        onClick = { onOpen(index) },
+        onClick = {
+            if (selectionMode) {
+                onToggleSelect()
+            } else {
+                onOpen(index)
+            }
+        },
     ) { focused ->
         Box(
             Modifier
@@ -242,6 +332,20 @@ private fun MediaCell(
             ) {
                 Icon(Icons.Rounded.PlayArrow, null, tint = Color.White, modifier = Modifier.size(30.dp))
             }
+            if (m.durationMs > 0) {
+                Text(
+                    MediaInfo.formatDuration(m.durationMs),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xBB000000))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
         }
         val tag = when (m.ext) {
             "avif", "avifs" -> "AVIF"
@@ -263,7 +367,7 @@ private fun MediaCell(
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
         }
-        if (fav) {
+        if (fav && !selectionMode) {
             Icon(
                 Icons.Rounded.Favorite, null,
                 tint = Color(0xFFFF4D79),
@@ -272,6 +376,22 @@ private fun MediaCell(
                     .padding(7.dp)
                     .size(20.dp),
             )
+        }
+        if (selectionMode) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(7.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) Color(0xFF00C6FF) else Color(0x99000000))
+                    .border(2.dp, Color.White, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isSelected) {
+                    Icon(Icons.Rounded.Check, null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                }
+            }
         }
         if (focused || showName) {
             Box(
@@ -338,9 +458,12 @@ private fun AlbumCell(a: Album, memory: FocusMemory, first: FocusRequester?, onO
     val fr = rememberCellFocus(key, memory, first)
     val ctx = LocalContext.current
     val cover = a.cover
-    val request = remember(cover.id) {
+    val request = remember(cover.id, cover.dateMillis) {
         ImageRequest.Builder(ctx)
             .data(cover.model)
+            .size(480, 360)
+            .precision(Precision.INEXACT)
+            .diskCacheKey("album_cover_${cover.id}_${cover.dateMillis}")
             .apply { if (cover.isVideo) setParameter(VIDEO_FRAME_KEY, 1_500_000L) }
             .crossfade(true)
             .build()

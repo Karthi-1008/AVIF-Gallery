@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.prismtv.gallery.data.GalleryViewModel
 import com.prismtv.gallery.data.Media
+import com.prismtv.gallery.ui.DarkThemeStyles
 import com.prismtv.gallery.ui.Palettes
 import com.prismtv.gallery.ui.PrismRoot
 import com.prismtv.gallery.ui.PrismTheme
@@ -82,8 +83,9 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
 
         setContent {
-            val idx = vm.settings.palette.coerceIn(0, Palettes.lastIndex)
-            PrismTheme(Palettes[idx]) {
+            val pIdx = vm.settings.palette.coerceIn(0, Palettes.lastIndex)
+            val sIdx = vm.settings.darkThemeStyle.coerceIn(0, DarkThemeStyles.lastIndex)
+            PrismTheme(palette = Palettes[pIdx], style = DarkThemeStyles[sIdx]) {
                 PrismRoot(
                     vm = vm,
                     permissionGranted = granted,

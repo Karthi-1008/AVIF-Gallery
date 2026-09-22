@@ -237,6 +237,58 @@ fun LoadingView(text: String = "Loading your library…") {
 }
 
 @Composable
+fun FilterChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+) {
+    val p = LocalPalette.current
+    FocusCard(
+        modifier = modifier,
+        shape = RoundedCornerShape(50),
+        focusedScale = 1.06f,
+        borderWidth = 0.dp,
+        onClick = onClick,
+    ) { focused ->
+        val bg: Brush = when {
+            selected && focused -> p.horizontal
+            selected -> Brush.horizontalGradient(listOf(p.c1.copy(alpha = 0.40f), p.c2.copy(alpha = 0.40f)))
+            focused -> SolidColor(Ui.SurfaceHi)
+            else -> SolidColor(Ui.Surface.copy(alpha = 0.85f))
+        }
+        val borderModifier = if (selected && !focused) {
+            Modifier.border(1.dp, p.c1.copy(alpha = 0.65f), RoundedCornerShape(50))
+        } else Modifier
+
+        Row(
+            Modifier
+                .then(borderModifier)
+                .background(bg)
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (icon != null) {
+                Icon(
+                    icon,
+                    null,
+                    tint = if (selected) Color.White else Ui.TextLo,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                text,
+                color = if (selected) Color.White else Ui.TextLo,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            )
+        }
+    }
+}
+
+@Composable
 fun CenterMessage(
     icon: ImageVector,
     title: String,
@@ -550,8 +602,15 @@ fun StorageDialog(
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.SemiBold,
                                     )
+                                    val storageInfo = if (drive.totalBytes > 0) {
+                                        val free = com.prismtv.gallery.data.MediaInfo.formatSize(drive.freeBytes)
+                                        val total = com.prismtv.gallery.data.MediaInfo.formatSize(drive.totalBytes)
+                                        "$free free of $total  •  ${drive.path.absolutePath}"
+                                    } else {
+                                        drive.path.absolutePath
+                                    }
                                     Text(
-                                        drive.path.absolutePath,
+                                        storageInfo,
                                         color = Ui.TextLo,
                                         fontSize = 12.sp,
                                         maxLines = 1,
@@ -559,7 +618,7 @@ fun StorageDialog(
                                     )
                                 }
                                 Text(
-                                    "Scan",
+                                    "Select",
                                     color = if (focused) Color.White else p.c2,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,

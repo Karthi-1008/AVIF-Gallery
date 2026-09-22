@@ -17,6 +17,8 @@ data class Media(
     val dateMillis: Long,
     val bucketId: String,
     val bucketName: String,
+    val dateTakenMillis: Long = dateMillis,
+    val durationMs: Long = 0L,
 ) {
     /** What Coil should load: a File when we have a path, else the content Uri. */
     val model: Any get() = if (path != null) File(path) else uri
@@ -41,6 +43,8 @@ data class StorageDrive(
     val name: String,
     val isUsb: Boolean,
     val isPrimary: Boolean,
+    val totalBytes: Long = 0L,
+    val freeBytes: Long = 0L,
 )
 
 object Formats {
@@ -85,3 +89,27 @@ class ViewerRequest(
     val allowDelete: Boolean = true,
     val external: Boolean = false,
 )
+
+enum class DateGrouping(val label: String) {
+    DAY("By Day"),
+    MONTH("By Month"),
+    YEAR("By Year"),
+    NONE("Continuous"),
+}
+
+enum class MediaFilter(val label: String) {
+    ALL("All"),
+    PHOTOS("Photos"),
+    VIDEOS("Videos"),
+    AVIF("AVIF"),
+    FAVORITES("Favorites"),
+}
+
+enum class SortOrder(val label: String) {
+    DATE_DESC("Newest First"),
+    DATE_ASC("Oldest First"),
+    NAME_ASC("Name A–Z"),
+    NAME_DESC("Name Z–A"),
+    SIZE_DESC("Largest First"),
+    SIZE_ASC("Smallest First"),
+}

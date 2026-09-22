@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import coil.Coil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,14 +37,78 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
     var hasLoadedOnce by mutableStateOf(false)
         private set
 
+    var searchQuery by mutableStateOf("")
+
+    var activeFilter by mutableStateOf(MediaFilter.ALL)
+
+    var selectedDriveId by mutableStateOf<String?>(null)
+
+    // Multi-selection state
+    var selectionMode by mutableStateOf(false)
+    var selectedIds by mutableStateOf<Set<String>>(emptySet())
+
+    init {
+        // Instant startup: load cached media instantly from disk cache (< 30ms)
+        if (settings.enableFastCache) {
+            viewModelScope.launch {
+                val cached = MediaCache.loadCache(app)
+                if (cached.isNotEmpty()) {
+                    raw = cached
+                    hasLoadedOnce = true
+                }
+                // Also load detected drives quickly
+                val drives = withContext(Dispatchers.IO) { MediaScanner.getDetectedDrives(app) }
+                detectedDrives = drives
+                // Background scan for any new/deleted items
+                refreshInternal(silent = cached.isNotEmpty())
+            }
+        } else {
+            refresh()
+        }
+    }
+
     private val visible by derivedStateOf {
         val s = settings
-        val filtered = raw.filter { it.isVideo || !s.hideSmall || it.size >= MIN_IMAGE_BYTES }
+        val query = searchQuery.trim().lowercase()
+        val filter = activeFilter
+        val driveId = selectedDriveId
+
+        var list = raw.filter { item ->
+            // Filter out tiny images if requested
+            if (!item.isVideo && s.hideSmall && item.size < MIN_IMAGE_BYTES) return@filter false
+            // Drive filter
+            if (driveId != null) {
+                val path = item.path ?: ""
+                val bucket = item.bucketId
+                if (!path.startsWith(driveId) && !bucket.startsWith(driveId)) return@filter false
+            }
+            // Media type filter
+            when (filter) {
+                MediaFilter.ALL -> true
+                MediaFilter.PHOTOS -> !item.isVideo
+                MediaFilter.VIDEOS -> item.isVideo
+                MediaFilter.AVIF -> item.ext == "avif" || item.ext == "avifs"
+                MediaFilter.FAVORITES -> item.id in favorites
+            }
+        }
+
+        // Search query filter
+        if (query.isNotEmpty()) {
+            list = list.filter {
+                it.name.lowercase().contains(query) ||
+                it.bucketName.lowercase().contains(query) ||
+                it.ext.contains(query)
+            }
+        }
+
+        // Sort order
         when (s.sort) {
-            1 -> filtered.sortedBy { it.dateMillis }
-            2 -> filtered.sortedBy { it.name.lowercase() }
-            3 -> filtered.sortedByDescending { it.size }
-            else -> filtered.sortedByDescending { it.dateMillis }
+            1 -> list.sortedBy { if (s.useDateTaken) it.dateTakenMillis else it.dateMillis }
+            2 -> list.sortedBy { it.name.lowercase() }
+            3 -> list.sortedByDescending { it.name.lowercase() }
+            4 -> list.sortedByDescending { it.size }
+            5 -> list.sortedBy { it.size }
+            else -> list.sortedByDescending { if (s.useDateTaken) it.dateTakenMillis else it.dateMillis }
         }
     }
 
@@ -54,20 +119,37 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
     val albums: List<Album> by derivedStateOf {
         visible.groupBy { it.bucketId }
             .map { (id, list) -> Album(id, list.first().bucketName, list) }
-            .sortedByDescending { a -> a.items.maxOf { it.dateMillis } }
+            .sortedByDescending { a -> a.items.maxOf { it.dateTakenMillis } }
     }
 
     fun refresh() {
         if (loading) return
-        loading = true
+        refreshInternal(silent = false)
+    }
+
+    private fun refreshInternal(silent: Boolean = false) {
+        if (!silent) loading = true
         viewModelScope.launch {
             val drives = withContext(Dispatchers.IO) { MediaScanner.getDetectedDrives(app) }
             detectedDrives = drives
             val uris = customUris
-            val result = withContext(Dispatchers.IO) { MediaScanner.scan(app, null, uris) }
+
+            val result = withContext(Dispatchers.IO) {
+                MediaScanner.scan(app, null, uris) { batch ->
+                    // Progressive loading: update raw list in chunks as they are discovered
+                    if (raw.isEmpty()) {
+                        raw = batch
+                    }
+                }
+            }
             raw = result
             loading = false
             hasLoadedOnce = true
+
+            // Persist to disk cache for instantaneous subsequent launches
+            if (settings.enableFastCache) {
+                MediaCache.saveCache(app, result)
+            }
         }
     }
 
@@ -75,11 +157,84 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
         if (loading) return
         loading = true
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { MediaScanner.scan(app, drive.path, emptySet()) }
+            val result = withContext(Dispatchers.IO) {
+                MediaScanner.scan(app, drive.path, emptySet()) { batch ->
+                    if (raw.isEmpty()) raw = batch
+                }
+            }
             raw = result
             loading = false
             hasLoadedOnce = true
+            if (settings.enableFastCache) {
+                MediaCache.saveCache(app, result)
+            }
         }
+    }
+
+    fun toggleSelection(m: Media) {
+        selectedIds = if (m.id in selectedIds) selectedIds - m.id else selectedIds + m.id
+        if (selectedIds.isEmpty()) {
+            selectionMode = false
+        }
+    }
+
+    fun selectAll(list: List<Media>) {
+        selectedIds = list.map { it.id }.toSet()
+        selectionMode = true
+    }
+
+    fun clearSelection() {
+        selectedIds = emptySet()
+        selectionMode = false
+    }
+
+    fun batchFavorite() {
+        val allFav = selectedIds.all { it in favorites }
+        favorites = if (allFav) favorites - selectedIds else favorites + selectedIds
+        prefs.saveFavorites(favorites)
+        clearSelection()
+    }
+
+    fun batchDelete(onDone: (Int) -> Unit) {
+        val targets = raw.filter { it.id in selectedIds }
+        if (targets.isEmpty()) {
+            clearSelection()
+            onDone(0)
+            return
+        }
+        viewModelScope.launch {
+            var deletedCount = 0
+            withContext(Dispatchers.IO) {
+                for (m in targets) {
+                    if (MediaScanner.delete(app, m)) {
+                        deletedCount++
+                    }
+                }
+            }
+            raw = raw.filter { it.id !in selectedIds }
+            favorites = favorites - selectedIds
+            prefs.saveFavorites(favorites)
+            clearSelection()
+            if (settings.enableFastCache) {
+                MediaCache.saveCache(app, raw)
+            }
+            onDone(deletedCount)
+        }
+    }
+
+    fun clearThumbnailCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                Coil.imageLoader(app).diskCache?.clear()
+                Coil.imageLoader(app).memoryCache?.clear()
+            } catch (e: Throwable) {
+            }
+        }
+    }
+
+    fun clearMediaCache() {
+        MediaCache.clearCache(app)
+        refresh()
     }
 
     fun addCustomTreeUri(uri: Uri) {
@@ -120,6 +275,9 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (m.id in favorites) {
                     favorites = favorites - m.id
                     prefs.saveFavorites(favorites)
+                }
+                if (settings.enableFastCache) {
+                    MediaCache.saveCache(app, raw)
                 }
             }
             onDone(ok)

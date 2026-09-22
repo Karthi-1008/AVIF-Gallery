@@ -6,6 +6,7 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.StatFs
 import android.os.storage.StorageManager
 import android.provider.BaseColumns
 import android.provider.DocumentsContract
@@ -13,16 +14,33 @@ import android.provider.MediaStore
 import android.provider.MediaStore.MediaColumns as Mc
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /**
- * Finds photos and videos:
- *  1. Detects all storage drives: Internal Storage, USB Flash Drives (/storage/XXXX-XXXX, /mnt/media_rw/...).
- *  2. Walks the real filesystem for every detected drive (enables .avif and unindexed USB media on TV).
- *  3. Queries MediaStore (Images and Videos) with safe column resolution.
- *  4. Scans user-selected SAF DocumentTrees if available.
+ * Ultra-fast Media Scanner:
+ *  1. Detects all storage drives (Internal Storage & USB OTG / Flash drives) with storage capacities.
+ *  2. Walks real filesystem recursively with progressive batch streaming.
+ *  3. Extracts true camera capture date & time from EXIF (TAG_DATETIME_ORIGINAL) and MediaStore.
+ *  4. Queries MediaStore (Images & Videos) safely with duration & date-taken metadata.
+ *  5. Scans user-selected SAF DocumentTrees if available.
  */
 object MediaScanner {
+
+    private val exifDateFmt = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US)
+
+    private fun getDriveStats(file: File): Pair<Long, Long> {
+        return try {
+            val stat = StatFs(file.absolutePath)
+            val total = stat.blockCountLong * stat.blockSizeLong
+            val free = stat.availableBlocksLong * stat.blockSizeLong
+            total to free
+        } catch (e: Throwable) {
+            0L to 0L
+        }
+    }
 
     fun getDetectedDrives(ctx: Context): List<StorageDrive> {
         val drives = LinkedHashMap<String, StorageDrive>()
@@ -31,12 +49,15 @@ object MediaScanner {
         try {
             val internal = Environment.getExternalStorageDirectory()
             if (internal != null && internal.exists()) {
+                val (total, free) = getDriveStats(internal)
                 drives[internal.absolutePath] = StorageDrive(
                     id = internal.absolutePath,
                     path = internal,
                     name = "Internal Storage",
                     isUsb = false,
                     isPrimary = true,
+                    totalBytes = total,
+                    freeBytes = free,
                 )
             }
         } catch (e: Throwable) {
@@ -69,12 +90,15 @@ object MediaScanner {
                             isRemovable -> "USB Drive (${file.name})"
                             else -> "Internal Storage"
                         }
+                        val (total, free) = getDriveStats(file)
                         drives[file.absolutePath] = StorageDrive(
                             id = file.absolutePath,
                             path = file,
                             name = displayName,
                             isUsb = isRemovable,
                             isPrimary = vol.isPrimary,
+                            totalBytes = total,
+                            freeBytes = free,
                         )
                     }
                 }
@@ -88,12 +112,15 @@ object MediaScanner {
                 val name = f.name
                 if (f.isDirectory && name != "self" && name != "emulated" && name != "knox-emulated") {
                     if (!drives.containsKey(f.absolutePath)) {
+                        val (total, free) = getDriveStats(f)
                         drives[f.absolutePath] = StorageDrive(
                             id = f.absolutePath,
                             path = f,
                             name = "USB Drive ($name)",
                             isUsb = true,
                             isPrimary = false,
+                            totalBytes = total,
+                            freeBytes = free,
                         )
                     }
                 }
@@ -106,12 +133,15 @@ object MediaScanner {
             File("/mnt/media_rw").listFiles()?.forEach { f ->
                 if (f.isDirectory && !f.name.startsWith(".")) {
                     if (!drives.containsKey(f.absolutePath)) {
+                        val (total, free) = getDriveStats(f)
                         drives[f.absolutePath] = StorageDrive(
                             id = f.absolutePath,
                             path = f,
                             name = "USB Drive (${f.name})",
                             isUsb = true,
                             isPrimary = false,
+                            totalBytes = total,
+                            freeBytes = free,
                         )
                     }
                 }
@@ -132,22 +162,28 @@ object MediaScanner {
                     if (sub != null && sub.isNotEmpty()) {
                         sub.forEach { s ->
                             if (s.isDirectory && !drives.containsKey(s.absolutePath)) {
+                                val (total, free) = getDriveStats(s)
                                 drives[s.absolutePath] = StorageDrive(
                                     id = s.absolutePath,
                                     path = s,
                                     name = "USB (${s.name})",
                                     isUsb = true,
                                     isPrimary = false,
+                                    totalBytes = total,
+                                    freeBytes = free,
                                 )
                             }
                         }
                     } else if (!drives.containsKey(f.absolutePath)) {
+                        val (total, free) = getDriveStats(f)
                         drives[f.absolutePath] = StorageDrive(
                             id = f.absolutePath,
                             path = f,
                             name = "USB (${f.name})",
                             isUsb = true,
                             isPrimary = false,
+                            totalBytes = total,
+                            freeBytes = free,
                         )
                     }
                 }
@@ -164,12 +200,15 @@ object MediaScanner {
                     val root = File(p.substring(0, idx))
                     if (root.exists() && !drives.containsKey(root.absolutePath)) {
                         val isInternal = root.absolutePath.contains("emulated")
+                        val (total, free) = getDriveStats(root)
                         drives[root.absolutePath] = StorageDrive(
                             id = root.absolutePath,
                             path = root,
                             name = if (isInternal) "Internal Storage" else "USB Drive (${root.name})",
                             isUsb = !isInternal,
                             isPrimary = isInternal,
+                            totalBytes = total,
+                            freeBytes = free,
                         )
                     }
                 }
@@ -184,6 +223,7 @@ object MediaScanner {
         ctx: Context,
         specificRoot: File? = null,
         customTrees: Set<String> = emptySet(),
+        onProgressBatch: ((List<Media>) -> Unit)? = null,
     ): List<Media> {
         val out = ArrayList<Media>(2048)
         val seen = HashSet<String>()
@@ -195,9 +235,16 @@ object MediaScanner {
             storageRoots(ctx)
         }
 
+        var lastReported = 0
+
         for (root in roots) {
             try {
-                walk(root, true, 0, out, seen, visited)
+                walk(root, true, 0, out, seen, visited) {
+                    if (onProgressBatch != null && out.size - lastReported >= 50) {
+                        lastReported = out.size
+                        onProgressBatch(ArrayList(out))
+                    }
+                }
             } catch (e: Throwable) {
             }
         }
@@ -212,6 +259,10 @@ object MediaScanner {
                 scanCustomTrees(ctx, customTrees, out, seen)
             } catch (e: Throwable) {
             }
+        }
+
+        if (onProgressBatch != null && out.size != lastReported) {
+            onProgressBatch(ArrayList(out))
         }
 
         return out
@@ -256,6 +307,23 @@ object MediaScanner {
         return roots.filter { it.exists() && it.isDirectory }
     }
 
+    private fun parseExifDateTaken(path: String, fallback: Long): Long {
+        val ext = path.substringAfterLast('.', "").lowercase()
+        if (ext !in setOf("jpg", "jpeg", "jpe", "jfif", "heic", "heif", "webp", "avif")) {
+            return fallback
+        }
+        return try {
+            val ex = ExifInterface(path)
+            val dateStr = ex.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                ?: ex.getAttribute(ExifInterface.TAG_DATETIME)
+            if (!dateStr.isNullOrBlank()) {
+                exifDateFmt.parse(dateStr)?.time ?: fallback
+            } else fallback
+        } catch (e: Throwable) {
+            fallback
+        }
+    }
+
     private fun walk(
         dir: File,
         isRoot: Boolean,
@@ -263,6 +331,7 @@ object MediaScanner {
         out: MutableList<Media>,
         seen: MutableSet<String>,
         visited: MutableSet<String>,
+        onItemAdded: () -> Unit,
     ) {
         if (depth > 12) return
         val canon = try {
@@ -283,7 +352,7 @@ object MediaScanner {
             if (n.startsWith(".")) continue
             if (f.isDirectory) {
                 if (isRoot && (n == "Android" || n == "LOST.DIR")) continue
-                walk(f, false, depth + 1, out, seen, visited)
+                walk(f, false, depth + 1, out, seen, visited, onItemAdded)
             } else {
                 val ext = n.substringAfterLast('.', "").lowercase()
                 val isImg = ext in Formats.imageExt
@@ -293,6 +362,10 @@ object MediaScanner {
                 if (!seen.add(path)) continue
                 val size = f.length()
                 if (isVid && size < 50_000) continue
+
+                val mod = f.lastModified()
+                val taken = if (isImg) parseExifDateTaken(path, mod) else mod
+
                 out += Media(
                     id = path,
                     path = path,
@@ -301,10 +374,13 @@ object MediaScanner {
                     mime = Formats.mimeFor(ext),
                     isVideo = isVid,
                     size = size,
-                    dateMillis = f.lastModified(),
+                    dateMillis = mod,
                     bucketId = dir.absolutePath,
                     bucketName = formatBucketName(dir),
+                    dateTakenMillis = taken,
+                    durationMs = 0L,
                 )
+                onItemAdded()
             }
         }
     }
@@ -336,7 +412,7 @@ object MediaScanner {
         out: MutableList<Media>,
         seen: MutableSet<String>,
     ) {
-        val projection = arrayOf(
+        val projection = mutableListOf(
             BaseColumns._ID,
             Mc.DISPLAY_NAME,
             Mc.MIME_TYPE,
@@ -344,14 +420,22 @@ object MediaScanner {
             Mc.DATE_MODIFIED,
             Mc.DATA,
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            projection.add(MediaStore.MediaColumns.DATE_TAKEN)
+            if (isVideo) {
+                projection.add(MediaStore.Video.VideoColumns.DURATION)
+            }
+        }
         try {
-            ctx.contentResolver.query(contentUri, projection, null, null, null)?.use { c ->
+            ctx.contentResolver.query(contentUri, projection.toTypedArray(), null, null, null)?.use { c ->
                 val iId = c.getColumnIndex(BaseColumns._ID)
                 val iName = c.getColumnIndex(Mc.DISPLAY_NAME)
                 val iMime = c.getColumnIndex(Mc.MIME_TYPE)
                 val iSize = c.getColumnIndex(Mc.SIZE)
                 val iDate = c.getColumnIndex(Mc.DATE_MODIFIED)
                 val iData = c.getColumnIndex(Mc.DATA)
+                val iTaken = c.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN)
+                val iDur = if (isVideo) c.getColumnIndex(MediaStore.Video.VideoColumns.DURATION) else -1
 
                 while (c.moveToNext()) {
                     val id = if (iId >= 0) c.getLong(iId) else continue
@@ -366,6 +450,8 @@ object MediaScanner {
                     val mime = (if (iMime >= 0) c.getString(iMime) else null) ?: Formats.mimeFor(ext)
                     val size = if (iSize >= 0) c.getLong(iSize) else 0L
                     val date = (if (iDate >= 0) c.getLong(iDate) else 0L) * 1000L
+                    val taken = if (iTaken >= 0) c.getLong(iTaken) else 0L
+                    val duration = if (iDur >= 0) c.getLong(iDur) else 0L
 
                     val dedupeKey = data ?: itemUri.toString()
                     if (!seen.add(dedupeKey)) continue
@@ -377,6 +463,9 @@ object MediaScanner {
                     }
                     val parent = data?.let { File(it).parentFile }
 
+                    val finalDate = if (date > 0) date else System.currentTimeMillis()
+                    val finalTaken = if (taken > 0) taken else finalDate
+
                     out += Media(
                         id = if (readable) data!! else itemUri.toString(),
                         path = if (readable) data else null,
@@ -385,9 +474,11 @@ object MediaScanner {
                         mime = mime,
                         isVideo = isVideo,
                         size = size,
-                        dateMillis = if (date > 0) date else System.currentTimeMillis(),
+                        dateMillis = finalDate,
                         bucketId = parent?.absolutePath ?: "mediastore",
                         bucketName = parent?.name?.ifEmpty { "Storage" } ?: "Storage",
+                        dateTakenMillis = finalTaken,
+                        durationMs = duration,
                     )
                 }
             }
@@ -450,6 +541,7 @@ object MediaScanner {
                 if (isVid && size < 50_000) continue
                 val mime = f.type ?: Formats.mimeFor(ext)
                 val folderName = if (doc == rootDoc) rootName else (doc.name ?: rootName)
+                val mod = f.lastModified()
                 out += Media(
                     id = uriStr,
                     path = null,
@@ -458,9 +550,11 @@ object MediaScanner {
                     mime = mime,
                     isVideo = isVid,
                     size = size,
-                    dateMillis = f.lastModified(),
+                    dateMillis = mod,
                     bucketId = doc.uri.toString(),
                     bucketName = folderName,
+                    dateTakenMillis = mod,
+                    durationMs = 0L,
                 )
             }
         }

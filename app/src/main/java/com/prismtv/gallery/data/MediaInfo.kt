@@ -37,7 +37,11 @@ object MediaInfo {
         m.path?.let { p -> File(p).parent?.let { rows += "Folder" to it } }
         rows += "Type" to m.mime
         rows += "Size" to formatSize(m.size)
-        if (m.dateMillis > 0) {
+        if (m.dateTakenMillis > 0) {
+            rows += "Date Taken" to DateFormat.getDateTimeInstance(DateFormat.LONG, DateFormat.MEDIUM)
+                .format(Date(m.dateTakenMillis))
+        }
+        if (m.dateMillis > 0 && m.dateMillis != m.dateTakenMillis) {
             rows += "Modified" to DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
                 .format(Date(m.dateMillis))
         }

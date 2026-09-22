@@ -1,7 +1,9 @@
 package com.prismtv.gallery.ui
 
 import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.CleanHands
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GridView
@@ -40,14 +47,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.prismtv.gallery.data.GalleryViewModel
 
-private val SORTS = listOf("Newest first", "Oldest first", "Name A–Z", "Largest first")
+private val SORTS = listOf(
+    "Newest first",
+    "Oldest first",
+    "Name A–Z",
+    "Name Z–A",
+    "Largest first",
+    "Smallest first",
+)
+private val GROUPINGS = listOf("By Day", "By Month", "By Year", "Continuous (No grouping)")
 private val THUMBS = listOf("Small", "Medium", "Large")
-private val INTERVALS = listOf(3, 5, 8, 10, 15, 30)
+private val INTERVALS = listOf(2, 3, 5, 8, 10, 15, 30)
 private val EFFECTS = listOf("Fade", "Slide", "Zoom")
 
 @Composable
@@ -59,9 +75,10 @@ fun SettingsScreen(
 ) {
     val s = vm.settings
     val p = LocalPalette.current
+    val ctx = LocalContext.current
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("Settings", "Press OK to change a value")
+        ScreenHeader("Settings", "Press OK to change any setting")
         Column(
             Modifier
                 .weight(1f)
@@ -69,9 +86,28 @@ fun SettingsScreen(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // Theme Customization
+            SettingRow(
+                icon = Icons.Rounded.DarkMode,
+                title = "Dark background style",
+                value = DarkThemeStyles[s.darkThemeStyle.coerceIn(0, DarkThemeStyles.lastIndex)].name,
+                trailing = {
+                    val st = DarkThemeStyles[s.darkThemeStyle.coerceIn(0, DarkThemeStyles.lastIndex)]
+                    Box(
+                        Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(st.bg)
+                            .border(2.dp, Color.White.copy(alpha = 0.6f), CircleShape)
+                    )
+                },
+            ) {
+                vm.update { it.copy(darkThemeStyle = (it.darkThemeStyle + 1) % DarkThemeStyles.size) }
+            }
+
             SettingRow(
                 icon = Icons.Rounded.Palette,
-                title = "Colour theme",
+                title = "Accent color glow",
                 value = Palettes[s.palette.coerceIn(0, Palettes.lastIndex)].name,
                 trailing = {
                     Palettes[s.palette.coerceIn(0, Palettes.lastIndex)].let { pl ->
@@ -89,9 +125,28 @@ fun SettingsScreen(
                 },
             ) { vm.update { it.copy(palette = (it.palette + 1) % Palettes.size) } }
 
-            SettingRow(Icons.Rounded.Sort, "Sort order", SORTS[s.sort.coerceIn(0, 3)]) {
+            // Date & Time Features
+            SettingRow(
+                icon = Icons.Rounded.CalendarToday,
+                title = "Date grouping mode",
+                value = GROUPINGS[s.dateGrouping.coerceIn(0, GROUPINGS.lastIndex)],
+            ) {
+                vm.update { it.copy(dateGrouping = (it.dateGrouping + 1) % GROUPINGS.size) }
+            }
+
+            SettingRow(
+                icon = Icons.Rounded.DateRange,
+                title = "Date source",
+                value = if (s.useDateTaken) "Camera Date Taken (EXIF)" else "File Modified Date",
+            ) {
+                vm.update { it.copy(useDateTaken = !it.useDateTaken) }
+            }
+
+            SettingRow(Icons.Rounded.Sort, "Sort order", SORTS[s.sort.coerceIn(0, SORTS.lastIndex)]) {
                 vm.update { it.copy(sort = (it.sort + 1) % SORTS.size) }
             }
+
+            // Grid & Display
             SettingRow(Icons.Rounded.GridView, "Thumbnail size", THUMBS[s.thumb.coerceIn(0, 2)]) {
                 vm.update { it.copy(thumb = (it.thumb + 1) % THUMBS.size) }
             }
@@ -101,6 +156,35 @@ fun SettingsScreen(
             SettingRow(Icons.Rounded.Image, "Hide tiny images (icons, stickers)", onOff(s.hideSmall)) {
                 vm.update { it.copy(hideSmall = !it.hideSmall) }
             }
+
+            // Fast USB & Cache Acceleration
+            SettingRow(
+                icon = Icons.Rounded.Bolt,
+                title = "Fast persistent cache (Instant USB)",
+                value = onOff(s.enableFastCache),
+            ) {
+                vm.update { it.copy(enableFastCache = !it.enableFastCache) }
+            }
+
+            SettingRow(
+                icon = Icons.Rounded.CleanHands,
+                title = "Clear thumbnail disk cache",
+                value = "Clear Now",
+            ) {
+                vm.clearThumbnailCache()
+                Toast.makeText(ctx, "Thumbnail cache cleared", Toast.LENGTH_SHORT).show()
+            }
+
+            SettingRow(
+                icon = Icons.Rounded.Refresh,
+                title = "Rebuild library & media cache",
+                value = "Rebuild",
+            ) {
+                vm.clearMediaCache()
+                Toast.makeText(ctx, "Rebuilding cache…", Toast.LENGTH_SHORT).show()
+            }
+
+            // Slideshow Settings
             SettingRow(Icons.Rounded.Timer, "Slideshow interval", "${s.intervalSec} seconds") {
                 vm.update {
                     val i = INTERVALS.indexOf(it.intervalSec)
@@ -119,7 +203,6 @@ fun SettingsScreen(
             SettingRow(Icons.Rounded.Repeat, "Repeat slideshow", onOff(s.loop)) {
                 vm.update { it.copy(loop = !it.loop) }
             }
-            SettingRow(Icons.Rounded.Refresh, "Rescan library & USB", "Now") { vm.refresh() }
 
             // USB & Storage Options
             SettingRow(Icons.Rounded.Usb, "Select USB drive / folder", "Browse…") {
@@ -151,17 +234,21 @@ fun SettingsScreen(
                     .background(Ui.Surface.copy(alpha = 0.8f))
                     .padding(20.dp)
             ) {
-                Text("Prism Gallery 1.0", color = Ui.TextHi, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Prism Gallery 2.0 (OLED Edition)", color = Ui.TextHi, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "Images: JPEG, PNG, WebP, GIF, BMP, HEIC/HEIF*, AVIF",
+                    "Accelerated USB loading with 512MB disk thumbnail cache & instant metadata index.",
                     color = Ui.TextLo, fontSize = 14.sp,
                 )
                 Text(
-                    "Video: MP4, MKV, WebM, MOV, 3GP, TS, MPEG, FLV, OGV (depends on TV decoders)",
+                    "Images: JPEG, PNG, WebP, GIF, BMP, HEIC/HEIF*, AVIF (bundled libavif decoder)",
                     color = Ui.TextLo, fontSize = 14.sp,
                 )
-                Text("*HEIC depends on the TV's hardware codec.", color = p.c3, fontSize = 12.sp)
+                Text(
+                    "Video: MP4, MKV, WebM, MOV, 3GP, TS, MPEG, FLV, OGV, AVI (Hardware + ExoPlayer)",
+                    color = Ui.TextLo, fontSize = 14.sp,
+                )
+                Text("*HEIC depends on TV hardware decoder availability.", color = p.c3, fontSize = 12.sp)
             }
             Spacer(Modifier.height(30.dp))
         }
@@ -215,7 +302,7 @@ private fun SettingRow(
             }
             Text(
                 value,
-                color = if (focused) Color.White else p.c3,
+                color = if (focused) Color.White else p.c2,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
             )
