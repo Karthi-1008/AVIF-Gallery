@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -102,46 +103,54 @@ fun FocusCard(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(16.dp),
     focusRequester: FocusRequester? = null,
-    focusedScale: Float = 1.07f,
-    borderWidth: Dp = 3.dp,
+    focusedScale: Float = 1.10f,
+    borderWidth: Dp = 3.5.dp,
     onFocusChange: (Boolean) -> Unit = {},
     onClick: () -> Unit,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     val p = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) focusedScale else 1f, tween(160), label = "cardScale")
-    val glow by animateFloatAsState(if (focused) 1f else 0f, tween(160), label = "cardGlow")
+    val scale by animateFloatAsState(if (focused) focusedScale else 1f, tween(140), label = "cardScale")
     val interaction = remember { MutableInteractionSource() }
 
     Box(
         modifier = modifier
-            .zIndex(if (focused) 1f else 0f)
+            .zIndex(if (focused) 5f else 0f)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
             }
-            .shadow(
-                elevation = (20f * glow).dp,
-                shape = shape,
-                clip = false,
-                ambientColor = p.c1,
-                spotColor = p.c2,
-            )
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged {
                 focused = it.isFocused
                 onFocusChange(it.isFocused)
             }
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .focusable(interactionSource = interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .clip(shape)
     ) {
         content(focused)
         if (focused) {
+            val ringWidth = if (borderWidth > 0.dp) borderWidth else 3.5.dp
+            // 1. Outer theme accent ring
             Box(
                 Modifier
                     .matchParentSize()
-                    .border(borderWidth, p.horizontal, shape)
+                    .border(ringWidth, p.horizontal, shape)
+            )
+            // 2. Crisp inner pure white ring for 100% visibility against all backgrounds
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .padding(ringWidth)
+                    .border(1.5.dp, Color.White.copy(alpha = 0.92f), shape)
+            )
+            // 3. Luminous surface highlight overlay so card physically illuminates
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(Color.White.copy(alpha = 0.12f))
             )
         }
     }
@@ -162,8 +171,8 @@ fun PillButton(
         modifier = modifier,
         shape = shape,
         focusRequester = focusRequester,
-        focusedScale = 1.06f,
-        borderWidth = 0.dp,
+        focusedScale = 1.08f,
+        borderWidth = 3.dp,
         onClick = onClick,
     ) { focused ->
         val bg: Brush = when {
@@ -171,11 +180,11 @@ fun PillButton(
             focused -> p.horizontal
             else -> SolidColor(Ui.SurfaceHi)
         }
-        val fg = if (focused) Ui.Bg else Ui.TextHi
+        val fg = if (focused) Color.White else Ui.TextHi
         Row(
             Modifier
                 .background(bg)
-                .padding(horizontal = 26.dp, vertical = 13.dp),
+                .padding(horizontal = 24.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
@@ -248,41 +257,47 @@ fun FilterChip(
     FocusCard(
         modifier = modifier,
         shape = RoundedCornerShape(50),
-        focusedScale = 1.06f,
-        borderWidth = 0.dp,
+        focusedScale = 1.08f,
+        borderWidth = 3.dp,
         onClick = onClick,
     ) { focused ->
         val bg: Brush = when {
             selected && focused -> p.horizontal
-            selected -> Brush.horizontalGradient(listOf(p.c1.copy(alpha = 0.40f), p.c2.copy(alpha = 0.40f)))
+            selected -> Brush.horizontalGradient(listOf(p.c1.copy(alpha = 0.50f), p.c2.copy(alpha = 0.50f)))
             focused -> SolidColor(Ui.SurfaceHi)
             else -> SolidColor(Ui.Surface.copy(alpha = 0.85f))
         }
         val borderModifier = if (selected && !focused) {
-            Modifier.border(1.dp, p.c1.copy(alpha = 0.65f), RoundedCornerShape(50))
+            Modifier.border(1.5.dp, p.c1.copy(alpha = 0.75f), RoundedCornerShape(50))
         } else Modifier
+
+        val fg = when {
+            focused -> Color.White
+            selected -> Color.White
+            else -> Ui.TextLo
+        }
 
         Row(
             Modifier
                 .then(borderModifier)
                 .background(bg)
-                .padding(horizontal = 14.dp, vertical = 7.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (icon != null) {
                 Icon(
                     icon,
                     null,
-                    tint = if (selected) Color.White else Ui.TextLo,
+                    tint = fg,
                     modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(6.dp))
             }
             Text(
                 text,
-                color = if (selected) Color.White else Ui.TextLo,
+                color = fg,
                 fontSize = 13.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
             )
         }
     }
@@ -415,47 +430,65 @@ private fun NavRow(
 ) {
     val p = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(140), label = "navScale")
     val interaction = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(16.dp)
     val bg: Brush = when {
         focused -> p.horizontal
-        selected -> SolidColor(Color.White.copy(alpha = 0.12f))
+        selected -> SolidColor(Color.White.copy(alpha = 0.14f))
         else -> SolidColor(Color.Transparent)
     }
     val fg = when {
-        focused -> Ui.Bg
+        focused -> Color.White
         selected -> Ui.TextHi
         else -> Ui.TextLo
     }
-    Row(
-        Modifier
+    Box(
+        modifier = Modifier
             .fillMaxWidth()
             .height(50.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .onFocusChanged {
                 focused = it.isFocused
                 onFocus(it.isFocused)
             }
+            .focusable(interactionSource = interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .clip(shape)
             .background(bg)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            item.icon,
-            null,
-            tint = if (selected && !focused) p.c3 else fg,
-            modifier = Modifier.size(26.dp),
-        )
-        if (expanded) {
-            Spacer(Modifier.width(14.dp))
-            Text(
-                item.label,
-                color = fg,
-                fontSize = 17.sp,
-                fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
-                maxLines = 1,
-                softWrap = false,
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                item.icon,
+                null,
+                tint = if (focused) Color.White else if (selected) p.c3 else fg,
+                modifier = Modifier.size(26.dp),
+            )
+            if (expanded) {
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    item.label,
+                    color = fg,
+                    fontSize = 17.sp,
+                    fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
+        }
+        if (focused) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .border(3.dp, Color.White, shape)
             )
         }
     }

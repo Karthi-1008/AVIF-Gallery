@@ -41,9 +41,16 @@ object Avif {
 
     /** Returns width to height, or null when the data is not a decodable AVIF. */
     fun size(bytes: ByteArray): Pair<Int, Int>? = try {
-        val buf = direct(bytes)
+        size(direct(bytes))
+    } catch (e: Throwable) {
+        null
+    }
+
+    fun size(buf: ByteBuffer): Pair<Int, Int>? = try {
+        val slice = buf.duplicate()
+        slice.rewind()
         val info = AvifDecoder.Info()
-        if (AvifDecoder.getInfo(buf, buf.remaining(), info) && info.width > 0 && info.height > 0) {
+        if (AvifDecoder.getInfo(slice, slice.remaining(), info) && info.width > 0 && info.height > 0) {
             info.width to info.height
         } else null
     } catch (e: Throwable) {
@@ -55,11 +62,15 @@ object Avif {
      * a smaller bitmap (the native decoder scales it), which keeps TV memory usage low.
      * [cover] = true fills the target (crop), false fits inside it.
      */
-    fun decode(bytes: ByteArray, targetW: Int?, targetH: Int?, cover: Boolean): Pair<Bitmap, Boolean>? {
+    fun decode(bytes: ByteArray, targetW: Int?, targetH: Int?, cover: Boolean): Pair<Bitmap, Boolean>? =
+        decode(direct(bytes), targetW, targetH, cover)
+
+    fun decode(buf: ByteBuffer, targetW: Int?, targetH: Int?, cover: Boolean): Pair<Bitmap, Boolean>? {
         return try {
-            val buf = direct(bytes)
+            val slice = buf.duplicate()
+            slice.rewind()
             val info = AvifDecoder.Info()
-            if (!AvifDecoder.getInfo(buf, buf.remaining(), info)) return null
+            if (!AvifDecoder.getInfo(slice, slice.remaining(), info)) return null
             var w = info.width
             var h = info.height
             if (w <= 0 || h <= 0) return null
@@ -74,8 +85,8 @@ object Avif {
                     sampled = true
                 }
             }
-            // Guard against excessive memory usage on Android TVs (max ~2.5 MP / 1080p, ~8 MB RAM)
-            while (w.toLong() * h > 2_500_000L) {
+            // Guard against excessive memory usage on low-end Android TVs (max ~1.8 MP / 1080p, ~4-7 MB RAM)
+            while (w.toLong() * h > 1_800_000L) {
                 w /= 2; h /= 2; sampled = true
             }
             var bmp: Bitmap? = null
@@ -88,7 +99,8 @@ object Avif {
                     sampled = true
                 }
             }
-            if (bmp == null || !AvifDecoder.decode(buf, buf.remaining(), bmp)) {
+            slice.rewind()
+            if (bmp == null || !AvifDecoder.decode(slice, slice.remaining(), bmp)) {
                 bmp?.recycle()
                 return null
             }

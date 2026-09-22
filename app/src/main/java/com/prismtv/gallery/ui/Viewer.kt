@@ -141,10 +141,10 @@ private data class Toast(val text: String, val id: Int)
 
 private fun photoRequest(ctx: Context, m: Media, isZoomed: Boolean = false): ImageRequest {
     val dm = ctx.resources.displayMetrics
-    // Bound decode target to the physical display resolution (max 1080p, min 720p)
-    // to prevent decoding massive 48MP photos into 100MB bitmaps on TV RAM.
-    val maxW = if (isZoomed) 2560 else min(dm.widthPixels, 1920).coerceAtLeast(1280)
-    val maxH = if (isZoomed) 1440 else min(dm.heightPixels, 1080).coerceAtLeast(720)
+    // Bound decode target strictly to the physical display resolution (max 1080p, min 720p)
+    // to prevent allocating massive multi-megabyte bitmaps on 1GB Android TV.
+    val maxW = min(dm.widthPixels, 1920).coerceAtLeast(1280)
+    val maxH = min(dm.heightPixels, 1080).coerceAtLeast(720)
 
     return ImageRequest.Builder(ctx)
         .data(m.model)
@@ -867,13 +867,13 @@ private fun CtlButton(c: Ctl, fr: FocusRequester?, onFocus: (Boolean) -> Unit) {
         modifier = Modifier.size(54.dp),
         shape = CircleShape,
         focusRequester = fr,
-        focusedScale = 1.18f,
-        borderWidth = 0.dp,
+        focusedScale = 1.20f,
+        borderWidth = 3.dp,
         onFocusChange = onFocus,
         onClick = c.onClick,
     ) { focused ->
         val bg: Brush = when {
-            focused -> p.diagonal
+            focused -> p.horizontal
             c.active -> SolidColor(Color.White.copy(alpha = 0.28f))
             else -> SolidColor(Color.White.copy(alpha = 0.10f))
         }
@@ -886,7 +886,7 @@ private fun CtlButton(c: Ctl, fr: FocusRequester?, onFocus: (Boolean) -> Unit) {
             Icon(
                 c.icon,
                 c.label,
-                tint = if (focused) Ui.Bg else Color.White,
+                tint = Color.White,
                 modifier = Modifier.size(28.dp),
             )
         }
@@ -1026,7 +1026,7 @@ private fun ThumbnailFilmstrip(
             val req = remember(m.id, m.dateMillis) {
                 ImageRequest.Builder(ctx)
                     .data(m.model)
-                    .size(160, 160)
+                    .size(120, 120)
                     .precision(Precision.INEXACT)
                     .allowRgb565(true)
                     .placeholderMemoryCacheKey("thumb_${m.id}")
@@ -1042,7 +1042,7 @@ private fun ThumbnailFilmstrip(
                     .aspectRatio(1f),
                 shape = RoundedCornerShape(10.dp),
                 focusedScale = 1.15f,
-                borderWidth = 0.dp,
+                borderWidth = 3.dp,
                 onClick = { onSelectIndex(idx) },
             ) { _ ->
                 Box(

@@ -10,6 +10,9 @@ import coil.size.Dimension
 import coil.size.Scale
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 
 /** Teaches Coil to decode AVIF images (any Android version) using libavif + dav1d. */
 class AvifCoilDecoder(
@@ -18,10 +21,35 @@ class AvifCoilDecoder(
 ) : Decoder {
 
     override suspend fun decode(): DecodeResult? = gate.withPermit {
-        val bytes = source.source.source().readByteArray()
+        val file = try {
+            source.source.fileOrNull()?.toFile()
+        } catch (e: Throwable) {
+            null
+        }
+
+        val buf: ByteBuffer = if (file != null && file.exists() && file.length() > 0) {
+            try {
+                FileInputStream(file).channel.use { ch ->
+                    ch.map(FileChannel.MapMode.READ_ONLY, 0, ch.size())
+                }
+            } catch (e: Throwable) {
+                val bytes = source.source.source().readByteArray()
+                val b = ByteBuffer.allocateDirect(bytes.size)
+                b.put(bytes)
+                b.rewind()
+                b
+            }
+        } else {
+            val bytes = source.source.source().readByteArray()
+            val b = ByteBuffer.allocateDirect(bytes.size)
+            b.put(bytes)
+            b.rewind()
+            b
+        }
+
         val tw = (options.size.width as? Dimension.Pixels)?.px
         val th = (options.size.height as? Dimension.Pixels)?.px
-        val res = Avif.decode(bytes, tw, th, options.scale == Scale.FILL) ?: return@withPermit null
+        val res = Avif.decode(buf, tw, th, options.scale == Scale.FILL) ?: return@withPermit null
         DecodeResult(
             drawable = BitmapDrawable(options.context.resources, res.first),
             isSampled = res.second,

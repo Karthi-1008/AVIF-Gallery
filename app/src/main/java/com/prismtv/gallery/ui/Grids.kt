@@ -278,7 +278,7 @@ private fun MediaCell(
     val request = remember(m.id, m.dateMillis) {
         ImageRequest.Builder(ctx)
             .data(m.model)
-            .size(384, 384)
+            .size(256, 256)
             .precision(Precision.INEXACT)
             .allowRgb565(true)
             .diskCacheKey("thumb_${m.id}_${m.dateMillis}")
@@ -471,8 +471,9 @@ private fun AlbumCell(a: Album, memory: FocusMemory, first: FocusRequester?, onO
     val request = remember(cover.id, cover.dateMillis) {
         ImageRequest.Builder(ctx)
             .data(cover.model)
-            .size(480, 360)
+            .size(320, 240)
             .precision(Precision.INEXACT)
+            .allowRgb565(true)
             .diskCacheKey("album_cover_${cover.id}_${cover.dateMillis}")
             .apply { if (cover.isVideo) setParameter(VIDEO_FRAME_KEY, 1_500_000L) }
             .crossfade(true)
