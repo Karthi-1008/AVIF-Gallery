@@ -42,7 +42,7 @@ class AvifCoilDecoder(
     }
 
     companion object {
-        // AVIF decoding is CPU and memory hungry; keep at most two running at once.
-        private val gate = Semaphore(2)
+        // AVIF decoding is CPU and memory hungry; keep at most one running at once on Android TV.
+        private val gate = Semaphore(1)
     }
 }

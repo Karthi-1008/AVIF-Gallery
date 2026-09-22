@@ -33,6 +33,7 @@ class GalleryApp : Application(), ImageLoaderFactory {
                     .build()
             }
             .crossfade(true)
+            .allowRgb565(true)
             .respectCacheHeaders(false)
             .build()
     }

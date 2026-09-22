@@ -139,13 +139,23 @@ private data class Ctl(
 
 private data class Toast(val text: String, val id: Int)
 
-private fun photoRequest(ctx: Context, m: Media): ImageRequest =
-    ImageRequest.Builder(ctx)
+private fun photoRequest(ctx: Context, m: Media, isZoomed: Boolean = false): ImageRequest {
+    val dm = ctx.resources.displayMetrics
+    // Bound decode target to the physical display resolution (max 1080p, min 720p)
+    // to prevent decoding massive 48MP photos into 100MB bitmaps on TV RAM.
+    val maxW = if (isZoomed) 2560 else min(dm.widthPixels, 1920).coerceAtLeast(1280)
+    val maxH = if (isZoomed) 1440 else min(dm.heightPixels, 1080).coerceAtLeast(720)
+
+    return ImageRequest.Builder(ctx)
         .data(m.model)
-        .size(2048)
+        .size(maxW, maxH)
+        .precision(Precision.INEXACT)
         .scale(Scale.FIT)
-        .crossfade(false)
+        .allowRgb565(true)
+        .placeholderMemoryCacheKey("thumb_${m.id}")
+        .crossfade(200)
         .build()
+}
 
 private fun slideTransition(dir: Int, ms: Int): ContentTransform =
     (slideInHorizontally(tween(ms)) { w -> w * dir } + fadeIn(tween(ms))) togetherWith
@@ -422,12 +432,12 @@ fun Viewer(
         }
     }
 
-    // warm the cache with the next photos
-    LaunchedEffect(index, list) {
-        for (d in intArrayOf(1, -1, 2)) {
-            val m = list.getOrNull(index + d) ?: continue
-            if (m.isVideo) continue
-            ctx.imageLoader.enqueue(photoRequest(ctx, m))
+    // Warm the cache with the next photo sequentially (avoids choking USB bandwidth with parallel decodes)
+    LaunchedEffect(index, list.size) {
+        delay(350)
+        val next = list.getOrNull(index + 1) ?: (if (settings.loop) list.firstOrNull() else null)
+        if (next != null && !next.isVideo) {
+            ctx.imageLoader.enqueue(photoRequest(ctx, next))
         }
     }
 
@@ -442,7 +452,7 @@ fun Viewer(
     // focus management: root when hidden, first button when shown
     LaunchedEffect(controls, showInfo, confirmDelete) {
         if (showInfo || confirmDelete) return@LaunchedEffect
-        if (controls) delay(70)
+        delay(if (controls) 70 else 100)
         try {
             (if (controls) ctlFocus else rootFocus).requestFocus()
         } catch (e: Exception) {
@@ -474,13 +484,13 @@ fun Viewer(
             .fillMaxSize()
             .background(Color.Black)
             .onSizeChanged { stage = it }
+            .focusable()
             .focusRequester(rootFocus)
             .onPreviewKeyEvent {
                 lastKeyAt = System.nanoTime()
                 false
             }
             .onKeyEvent { handleKey(it) }
-            .focusable()
     ) {
         if (cur.isVideo && player != null) {
             VideoSurface(player)
@@ -716,7 +726,8 @@ private fun PhotoPage(
         }
     }
 
-    val request = remember(m.id) { photoRequest(ctx, m) }
+    val isZoomed = xf.zoom > 1.05f
+    val request = remember(m.id, isZoomed) { photoRequest(ctx, m, isZoomed) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val w = constraints.maxWidth.toFloat()
@@ -1017,6 +1028,8 @@ private fun ThumbnailFilmstrip(
                     .data(m.model)
                     .size(160, 160)
                     .precision(Precision.INEXACT)
+                    .allowRgb565(true)
+                    .placeholderMemoryCacheKey("thumb_${m.id}")
                     .diskCacheKey("thumb_${m.id}_${m.dateMillis}")
                     .apply { if (m.isVideo) setParameter(VIDEO_FRAME_KEY, 1_500_000L) }
                     .crossfade(true)

@@ -128,12 +128,12 @@ fun FocusCard(
                 ambientColor = p.c1,
                 spotColor = p.c2,
             )
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged {
                 focused = it.isFocused
                 onFocusChange(it.isFocused)
             }
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .clip(shape)
     ) {
         content(focused)

@@ -364,7 +364,8 @@ object MediaScanner {
                 if (isVid && size < 50_000) continue
 
                 val mod = f.lastModified()
-                val taken = if (isImg) parseExifDateTaken(path, mod) else mod
+                // Use file modification time for instantaneous scanning without blocking USB I/O
+                val taken = mod
 
                 out += Media(
                     id = path,

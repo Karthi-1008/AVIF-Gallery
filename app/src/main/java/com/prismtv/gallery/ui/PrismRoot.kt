@@ -141,6 +141,7 @@ fun PrismRoot(
                     onClose = { lastId ->
                         memory.restore = lastId
                         viewer = null
+                        lastBackAt = 0L
                     },
                 )
             }
@@ -154,11 +155,15 @@ fun PrismRoot(
                         a != null -> {
                             memory.restore = "album:${a.id}"
                             openAlbum = null
+                            lastBackAt = 0L
                         }
-                        section != Section.PHOTOS -> section = Section.PHOTOS
+                        section != Section.PHOTOS -> {
+                            section = Section.PHOTOS
+                            lastBackAt = 0L
+                        }
                         else -> {
                             val now = System.currentTimeMillis()
-                            if (now - lastBackAt < 2500) {
+                            if (lastBackAt > 0L && (now - lastBackAt < 2500)) {
                                 onExit()
                             } else {
                                 lastBackAt = now
@@ -321,11 +326,16 @@ fun PrismRoot(
                                 showStorageDialog = true
                             }
                             "SLIDESHOW" -> {
-                                val imgs = vm.photos
-                                if (imgs.isEmpty()) {
-                                    Toast.makeText(ctx, "No photos to show", Toast.LENGTH_SHORT).show()
+                                val a = openAlbum
+                                val candidate = when {
+                                    a != null -> (vm.albums.firstOrNull { it.id == a.id }?.items ?: a.items).filter { !it.isVideo }
+                                    section == Section.FAVORITES -> vm.favoriteItems.filter { !it.isVideo }
+                                    else -> vm.photos
+                                }
+                                if (candidate.isEmpty()) {
+                                    Toast.makeText(ctx, "No photos found for slideshow", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    val ordered = if (settings.shuffle) imgs.shuffled() else imgs
+                                    val ordered = if (settings.shuffle) candidate.shuffled() else candidate
                                     viewer = ViewerRequest(ordered, 0, slideshow = true)
                                 }
                             }

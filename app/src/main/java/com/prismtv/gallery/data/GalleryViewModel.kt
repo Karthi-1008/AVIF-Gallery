@@ -119,7 +119,7 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
     val albums: List<Album> by derivedStateOf {
         visible.groupBy { it.bucketId }
             .map { (id, list) -> Album(id, list.first().bucketName, list) }
-            .sortedByDescending { a -> a.items.maxOf { it.dateTakenMillis } }
+            .sortedByDescending { a -> a.items.maxOfOrNull { it.dateTakenMillis } ?: 0L }
     }
 
     fun refresh() {

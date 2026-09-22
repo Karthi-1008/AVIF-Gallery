@@ -74,13 +74,22 @@ object Avif {
                     sampled = true
                 }
             }
-            // Guard against absurd sizes on low-memory TVs (max ~ 24 MP)
-            while (w.toLong() * h > 24_000_000L) {
+            // Guard against excessive memory usage on Android TVs (max ~2.5 MP / 1080p, ~8 MB RAM)
+            while (w.toLong() * h > 2_500_000L) {
                 w /= 2; h /= 2; sampled = true
             }
-            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            if (!AvifDecoder.decode(buf, buf.remaining(), bmp)) {
-                bmp.recycle()
+            var bmp: Bitmap? = null
+            while (bmp == null && w >= 64 && h >= 64) {
+                try {
+                    bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                } catch (oom: OutOfMemoryError) {
+                    w /= 2
+                    h /= 2
+                    sampled = true
+                }
+            }
+            if (bmp == null || !AvifDecoder.decode(buf, buf.remaining(), bmp)) {
+                bmp?.recycle()
                 return null
             }
             bmp to sampled
