@@ -561,6 +561,7 @@ private fun LibraryScreen(
                 cellMin = cellMin,
                 favorites = vm.favorites,
                 showNames = vm.settings.showNames,
+                gridAspect = vm.settings.gridAspect,
                 memory = memory,
                 selectionMode = vm.selectionMode,
                 selectedIds = vm.selectedIds,

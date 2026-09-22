@@ -147,6 +147,7 @@ fun MediaGrid(
     cellMin: Dp,
     favorites: Set<String>,
     showNames: Boolean,
+    gridAspect: Int = 0,
     memory: FocusMemory,
     selectionMode: Boolean = false,
     selectedIds: Set<String> = emptySet(),
@@ -203,6 +204,7 @@ fun MediaGrid(
                     index = e.index,
                     fav = e.media.id in favorites,
                     showName = showNames,
+                    gridAspect = gridAspect,
                     memory = memory,
                     selectionMode = selectionMode,
                     isSelected = e.media.id in selectedIds,
@@ -260,6 +262,7 @@ private fun MediaCell(
     index: Int,
     fav: Boolean,
     showName: Boolean,
+    gridAspect: Int = 0,
     memory: FocusMemory,
     selectionMode: Boolean = false,
     isSelected: Boolean = false,
@@ -277,6 +280,7 @@ private fun MediaCell(
             .data(m.model)
             .size(384, 384)
             .precision(Precision.INEXACT)
+            .allowRgb565(true)
             .diskCacheKey("thumb_${m.id}_${m.dateMillis}")
             .memoryCacheKey("thumb_${m.id}")
             .apply { if (m.isVideo) setParameter(VIDEO_FRAME_KEY, 1_500_000L) }
@@ -284,10 +288,16 @@ private fun MediaCell(
             .build()
     }
 
+    val aspect = when (gridAspect) {
+        1 -> 1.6f // Widescreen 16:10
+        2 -> 1.33f // Standard 4:3
+        else -> 1f // Square 1:1
+    }
+
     FocusCard(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1f),
+            .aspectRatio(aspect),
         shape = RoundedCornerShape(14.dp),
         focusRequester = fr,
         onFocusChange = { if (it) memory.last = m.id },

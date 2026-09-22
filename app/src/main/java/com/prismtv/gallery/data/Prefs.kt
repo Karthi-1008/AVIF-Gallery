@@ -25,6 +25,8 @@ data class Settings(
     val loopVideo: Boolean = false,
     val playbackSpeed: Float = 1.0f,
     val enableFastCache: Boolean = true,
+    /** 0: Square (1:1), 1: Widescreen (16:10), 2: Standard Photo (4:3) */
+    val gridAspect: Int = 0,
 )
 
 class Prefs(ctx: Context) {
@@ -49,6 +51,7 @@ class Prefs(ctx: Context) {
             loopVideo = sp.getBoolean("loopVideo", d.loopVideo),
             playbackSpeed = sp.getFloat("playbackSpeed", d.playbackSpeed),
             enableFastCache = sp.getBoolean("enableFastCache", d.enableFastCache),
+            gridAspect = sp.getInt("gridAspect", d.gridAspect),
         )
     }
 
@@ -70,6 +73,7 @@ class Prefs(ctx: Context) {
             .putBoolean("loopVideo", s.loopVideo)
             .putFloat("playbackSpeed", s.playbackSpeed)
             .putBoolean("enableFastCache", s.enableFastCache)
+            .putInt("gridAspect", s.gridAspect)
             .apply()
     }
 

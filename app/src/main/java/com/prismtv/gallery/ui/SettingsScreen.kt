@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.CleanHands
+import androidx.compose.material.icons.rounded.Crop
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Favorite
@@ -39,12 +40,18 @@ import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Usb
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -63,6 +70,7 @@ private val SORTS = listOf(
 )
 private val GROUPINGS = listOf("By Day", "By Month", "By Year", "Continuous (No grouping)")
 private val THUMBS = listOf("Small", "Medium", "Large")
+private val GRID_ASPECTS = listOf("Square (1:1)", "Widescreen (16:10)", "Standard Photo (4:3)")
 private val INTERVALS = listOf(2, 3, 5, 8, 10, 15, 30)
 private val EFFECTS = listOf("Fade", "Slide", "Zoom")
 
@@ -149,6 +157,9 @@ fun SettingsScreen(
             // Grid & Display
             SettingRow(Icons.Rounded.GridView, "Thumbnail size", THUMBS[s.thumb.coerceIn(0, 2)]) {
                 vm.update { it.copy(thumb = (it.thumb + 1) % THUMBS.size) }
+            }
+            SettingRow(Icons.Rounded.Crop, "Thumbnail aspect ratio", GRID_ASPECTS[s.gridAspect.coerceIn(0, 2)]) {
+                vm.update { it.copy(gridAspect = (it.gridAspect + 1) % GRID_ASPECTS.size) }
             }
             SettingRow(Icons.Rounded.Favorite, "Show file names on thumbnails", onOff(s.showNames)) {
                 vm.update { it.copy(showNames = !it.showNames) }

@@ -73,6 +73,12 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
         val filter = activeFilter
         val driveId = selectedDriveId
 
+        val duplicateSizes: Set<Long> = if (filter == MediaFilter.DUPLICATES) {
+            raw.groupBy { it.size }
+                .filter { it.value.size > 1 && it.key > 50_000L }
+                .keys
+        } else emptySet()
+
         var list = raw.filter { item ->
             // Filter out tiny images if requested
             if (!item.isVideo && s.hideSmall && item.size < MIN_IMAGE_BYTES) return@filter false
@@ -89,6 +95,7 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
                 MediaFilter.VIDEOS -> item.isVideo
                 MediaFilter.AVIF -> item.ext == "avif" || item.ext == "avifs"
                 MediaFilter.FAVORITES -> item.id in favorites
+                MediaFilter.DUPLICATES -> item.size in duplicateSizes
             }
         }
 
@@ -102,13 +109,17 @@ class GalleryViewModel(private val app: Application) : AndroidViewModel(app) {
         }
 
         // Sort order
-        when (s.sort) {
-            1 -> list.sortedBy { if (s.useDateTaken) it.dateTakenMillis else it.dateMillis }
-            2 -> list.sortedBy { it.name.lowercase() }
-            3 -> list.sortedByDescending { it.name.lowercase() }
-            4 -> list.sortedByDescending { it.size }
-            5 -> list.sortedBy { it.size }
-            else -> list.sortedByDescending { if (s.useDateTaken) it.dateTakenMillis else it.dateMillis }
+        if (filter == MediaFilter.DUPLICATES) {
+            list.sortedWith(compareByDescending<Media> { it.size }.thenBy { it.name.lowercase() })
+        } else {
+            when (s.sort) {
+                1 -> list.sortedBy { if (s.useDateTaken) it.dateTakenMillis else it.dateMillis }
+                2 -> list.sortedBy { it.name.lowercase() }
+                3 -> list.sortedByDescending { it.name.lowercase() }
+                4 -> list.sortedByDescending { it.size }
+                5 -> list.sortedBy { it.size }
+                else -> list.sortedByDescending { if (s.useDateTaken) it.dateTakenMillis else it.dateMillis }
+            }
         }
     }
 

@@ -79,16 +79,22 @@ object MediaInfo {
             val mp = it.first.toLong() * it.second / 1_000_000.0
             rows += "Resolution" to "${it.first} × ${it.second}  (${String.format(Locale.US, "%.1f", mp)} MP)"
         }
-        if (m.path != null && m.ext in setOf("jpg", "jpeg", "jpe", "jfif", "png", "webp", "heic", "heif")) {
+        if (m.path != null && m.ext in setOf("jpg", "jpeg", "jpe", "jfif", "png", "webp", "heic", "heif", "avif")) {
             val ex = ExifInterface(m.path)
             val make = ex.getAttribute(ExifInterface.TAG_MAKE)
             val model = ex.getAttribute(ExifInterface.TAG_MODEL)
             val cam = listOfNotNull(make, model).joinToString(" ").trim()
             if (cam.isNotEmpty()) rows += "Camera" to cam
+            ex.getAttribute(ExifInterface.TAG_LENS_MODEL)?.let { rows += "Lens" to it }
             ex.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)?.let { rows += "Taken" to it }
             ex.getAttribute(ExifInterface.TAG_F_NUMBER)?.let { rows += "Aperture" to "f/$it" }
             ex.getAttribute(ExifInterface.TAG_EXPOSURE_TIME)?.let { rows += "Exposure" to "$it s" }
+            ex.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)?.let { rows += "ISO" to it }
             ex.getAttribute(ExifInterface.TAG_FOCAL_LENGTH)?.let { rows += "Focal length" to it }
+            val latLong = FloatArray(2)
+            if (ex.getLatLong(latLong)) {
+                rows += "Location" to String.format(Locale.US, "%.4f, %.4f", latLong[0], latLong[1])
+            }
         }
     }
 

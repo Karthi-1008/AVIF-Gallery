@@ -103,6 +103,7 @@ enum class MediaFilter(val label: String) {
     VIDEOS("Videos"),
     AVIF("AVIF"),
     FAVORITES("Favorites"),
+    DUPLICATES("Duplicates"),
 }
 
 enum class SortOrder(val label: String) {
